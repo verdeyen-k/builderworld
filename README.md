@@ -8,7 +8,7 @@ You start next to your 🏰 **centre tower**. Walk with **WASD / arrow keys**, o
 
 - **Gather:** tap 🌲 trees, 🪨 rocks, 🔩 metal scraps and 🫐 berry bushes next to you (hold to keep gathering). It goes in your 🎒 backpack (30 things max).
 - **Bring it home:** stuff only counts once it reaches the tower. Walk your backpack there, or build harvesters and run conveyor belts into the tower.
-- **Tame animals** by tapping them: 🐺 + 5🫐 = 🐕 **dog** (follows you and fights monsters), 🐀 + 2🫐 = 🐁 **tamed rat** (each one makes harvesters 20% faster).
+- **Tame animals** by tapping them: 🐺 + 5🫐 = 🐕 **dog** (follows you and fights monsters), 🐀 + 2🫐 = 🐁 **tamed rat** (each one makes harvesters 5% faster).
 - **Day and night go round forever.** At night monsters come for the tower, and every night there are more of them. If the tower falls, the game is over.
 
 ## Buildings

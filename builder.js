@@ -10,7 +10,7 @@
   const FIRST_DAY = 200, DAY_LEN = 150, NIGHT_LEN = 80;   // seconds
   const BELT_SPEED = 2;          // tiles a second
   const PACK_MAX = 30;           // things you can carry
-  const RAT_BOOST = 0.2;         // every tamed rat makes harvesters 20% faster
+  const RAT_BOOST = 0.05;        // every tamed rat makes harvesters 5% faster
   const TOWER_HP = 600;
   const START = { wood: 6, rock: 6, metal: 6, berry: 0 };
   const DX = [1, 0, -1, 0], DY = [0, 1, 0, -1];            // 0 right, 1 down, 2 left, 3 up
