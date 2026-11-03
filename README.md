@@ -8,7 +8,7 @@ You start next to your 🏰 **centre tower**. Walk with **WASD / arrow keys**, o
 
 - **Gather:** tap 🌲 trees, 🪨 rocks, 🔩 metal scraps and 🫐 berry bushes next to you (hold to keep gathering). It goes in your 🎒 backpack (30 things max).
 - **Bring it home:** stuff only counts once it reaches the tower. Walk your backpack there, or build harvesters and run conveyor belts into the tower.
-- **Tame animals** by tapping them: 🐺 + 5🫐 = 🐕 **dog** (follows you and fights monsters), 🐀 + 2🫐 = 🐁 **tamed rat** (each one makes harvesters 5% faster).
+- **Tame animals** by tapping them: 🐺 + 5🫐 = 🐕 **dog** (follows you and fights monsters), 🐀 + 2🫐 = 🐁 **tamed rat** (each one makes harvesters 5% faster), 🐔 + 7🫐 = 🐓 **chicken** (each one makes dogs 5% stronger), 🦉 + 9🫐 = **owl** (follows you and heals you and your dogs nearby).
 - **Day and night go round forever.** At night monsters come for the tower, and every night there are more of them. If the tower falls, the game is over.
 
 ## Buildings
@@ -34,6 +34,7 @@ The turret costs weren't in the original idea, so these are a first guess. Chang
 - 💀 **Archen:** stops and shoots arrows (from night 2).
 - 👾 **Minsi:** tiny, weak and fast.
 - 🧌 **Megso:** giant, strong and slow (from night 3).
+- 👺 **Doubleshot:** shoots 2 bullets at a time from super far away, range 9, so only sniper turrets can reach it (from night 4).
 
 ## Controls
 

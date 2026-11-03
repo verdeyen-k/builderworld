@@ -11,6 +11,8 @@
   const BELT_SPEED = 2;          // tiles a second
   const PACK_MAX = 30;           // things you can carry
   const RAT_BOOST = 0.05;        // every tamed rat makes harvesters 5% faster
+  const CHICK_BOOST = 0.05;      // every tamed chicken makes dogs 5% stronger
+  const OWL_RANGE = 4, OWL_HEAL = 6;   // owls heal you and your dogs this close, this much a second
   const TOWER_HP = 600;
   const START = { wood: 6, rock: 6, metal: 6, berry: 0 };
   const DX = [1, 0, -1, 0], DY = [0, 1, 0, -1];            // 0 right, 1 down, 2 left, 3 up
@@ -56,8 +58,12 @@
     archen: { name: 'Archen', icon: '💀', hp: 22, speed: 1.3, dmg: 5, every: 1.7, r: 0.34, size: 0.8, ranged: true, range: 6, about: 'stops and shoots arrows' },
     minsi:  { name: 'Minsi', icon: '👾', hp: 8, speed: 3.2, dmg: 2, every: 0.5, r: 0.24, size: 0.5, about: 'tiny, weak and fast' },
     megso:  { name: 'Megso', icon: '🧌', hp: 220, speed: 0.65, dmg: 28, every: 1.4, r: 0.62, size: 1.6, about: 'giant, strong and slow' },
+    double: { name: 'Doubleshot', icon: '👺', hp: 40, speed: 1.1, dmg: 6, every: 2.2, r: 0.36, size: 0.9, ranged: true, range: 9, twin: true,
+              about: 'shoots 2 bullets at a time from super far away (only snipers reach that far)' },
   };
-  const TAME = { wolf: 5, rat: 2 };
+  const TAME = { wolf: 5, rat: 2, chicken: 7, owl: 9 };
+  const WILD = { wolf: { icon: '🐺', size: 0.8, sp: 1.3 }, rat: { icon: '🐀', size: 0.55, sp: 1 },
+                 chicken: { icon: '🐔', size: 0.6, sp: 0.9 }, owl: { icon: '🦉', size: 0.65, sp: 1.6 } };
 
   const TOOLS = ['hand', 'belt', 'splitter', 'wall', 'hwood', 'hrock', 'hmetal', 'tbasic', 'tsniper', 'tfire', 'tmega', 'remove'];
   const TOOL_KEYS = { '1': 'belt', '2': 'splitter', '3': 'wall', '4': 'hwood', '5': 'hrock', '6': 'hmetal',
@@ -119,7 +125,7 @@
       stock: { ...START }, pack: { wood: 0, rock: 0, metal: 0, berry: 0 },
       changed: new Map(), builds: new Map(), list: [], tower: null,
       player: { x: 0, y: 2.6, hp: 100, dead: 0, calm: 9, cd: 0, face: -1 },
-      monsters: [], animals: [], dogs: [], rats: [], shots: [], fx: [], queue: [],
+      monsters: [], animals: [], dogs: [], rats: [], chickens: [], owls: [], shots: [], fx: [], queue: [],
       animalT: 0, kills: 0, over: false,
     };
     makeTower(TOWER_HP);
@@ -139,6 +145,7 @@
     const data = {
       v: 1, seed: S.seed, T: S.T, clock: S.clock, night: S.night, stock: S.stock, pack: S.pack, kills: S.kills,
       px: S.player.x, py: S.player.y, tower: S.tower.hp, rats: S.rats.length, dogs: S.dogs.length,
+      chickens: S.chickens.length, owls: S.owls.length,
       changed: [...S.changed], builds: S.list.map((b) => [b.type, b.x, b.y, b.dir, Math.ceil(b.hp)]),
     };
     store.set(SAVE_KEY, JSON.stringify(data));
@@ -158,6 +165,8 @@
     }
     for (let i = 0; i < d.rats; i++) addRat(rand(-2, 2), rand(1.5, 3));
     for (let i = 0; i < d.dogs; i++) addDog(S.player.x + rand(-1, 1), S.player.y + rand(-1, 1));
+    for (let i = 0; i < (d.chickens || 0); i++) addChicken(rand(-2, 2), rand(1.5, 3));
+    for (let i = 0; i < (d.owls || 0); i++) addOwl(S.player.x + rand(-1, 1), S.player.y + rand(-1, 1));
     return true;
   }
 
@@ -229,8 +238,11 @@
   }
 
   // ── Animals ──────────────────────────────────────────────────────────────
-  function addDog(x, y) { S.dogs.push({ x, y, hp: 80, max: 80, rest: 0, cd: 0, face: -1, slot: S.dogs.length }); }
+  const dogPower = () => 1 + CHICK_BOOST * S.chickens.length;
+  function addDog(x, y) { const m = 80 * dogPower(); S.dogs.push({ x, y, hp: m, max: m, rest: 0, cd: 0, face: -1, slot: S.dogs.length }); }
   function addRat(x, y) { S.rats.push({ x, y, tx: x, ty: y, t: 0, face: -1 }); }
+  function addChicken(x, y) { S.chickens.push({ x, y, tx: x, ty: y, t: 0, face: -1 }); }
+  function addOwl(x, y) { S.owls.push({ x, y, face: -1 }); }
   function tame(a) {
     const p = S.player, need = TAME[a.kind];
     if (dist(p, a) > 2.6) { say('Walk closer to tame it.'); return; }
@@ -241,6 +253,8 @@
     S.animals.splice(S.animals.indexOf(a), 1);
     fx({ k: 'text', x: a.x, y: a.y - 0.6, life: 1.2, text: '❤️' });
     if (a.kind === 'wolf') { addDog(a.x, a.y); toast('🐺 + 5🫐 = 🐕 A new dog! It will fight monsters with you.'); }
+    else if (a.kind === 'chicken') { addChicken(a.x, a.y); toast(`🐔 + 7🫐 = 🐓 Tamed chicken! Your dogs are now ${Math.round(S.chickens.length * CHICK_BOOST * 100)}% stronger.`); }
+    else if (a.kind === 'owl') { addOwl(a.x, a.y); toast('🦉 + 9🫐 = Tamed owl! It follows you and heals you and your dogs nearby.'); }
     else { addRat(a.x, a.y); toast(`🐀 + 2🫐 = 🐁 Tamed rat! Harvesters are now ${Math.round(S.rats.length * RAT_BOOST * 100)}% faster.`); }
   }
 
@@ -252,6 +266,7 @@
     const add = (k, c) => { for (let i = 0; i < c; i++) list.push(k); };
     add('rallet', 3 + 2 * n); add('minsi', 1 + Math.floor(n * 1.5));
     add('archen', Math.max(0, n - 1)); add('megso', n >= 3 ? Math.floor((n - 1) / 2) : 0);
+    add('double', n >= 4 ? Math.floor((n - 2) / 2) : 0);
     const sides = [];   // monsters come from one side at first, then more
     for (let i = 0; i < Math.min(4, 1 + Math.floor(n / 3)); i++) sides.push(Math.random() * Math.PI * 2);
     S.queue = list.map((kind) => ({ kind, at: rand(0, NIGHT_LEN * 0.6), ang: sides[(Math.random() * sides.length) | 0] + rand(-0.35, 0.35) }))
@@ -457,7 +472,11 @@
       if (d.ranged && e - (m.tgt.k === 't' ? 1.2 : 0) < d.range) {
         if (m.cd <= 0) {
           m.cd = d.every;
-          S.shots.push({ k: 'arrow', x: m.x, y: m.y, sx: m.x, sy: m.y, tx: tp.x, ty: tp.y, t: 0, dur: e / 10, tgt: m.tgt, dmg: d.dmg });
+          if (d.twin) {   // two bullets side by side
+            const nx = -dy / e * 0.18, ny = dx / e * 0.18;
+            for (const k of [-1, 1]) S.shots.push({ k: 'arrow', bolt: true, x: m.x + nx * k, y: m.y + ny * k, sx: m.x + nx * k, sy: m.y + ny * k,
+              tx: tp.x + nx * k, ty: tp.y + ny * k, t: 0, dur: e / 15, tgt: m.tgt, dmg: d.dmg });
+          } else S.shots.push({ k: 'arrow', x: m.x, y: m.y, sx: m.x, sy: m.y, tx: tp.x, ty: tp.y, t: 0, dur: e / 10, tgt: m.tgt, dmg: d.dmg });
         }
         continue;
       }
@@ -517,25 +536,40 @@
         const ang = Math.random() * Math.PI * 2, r = rand(10, 22);
         const x = p.x + Math.cos(ang) * r, y = p.y + Math.sin(ang) * r;
         if (Math.hypot(x, y) > 7 && !solidAt(Math.floor(x), Math.floor(y)))
-          S.animals.push({ kind: Math.random() < 0.4 ? 'wolf' : 'rat', x, y, vx: 0, vy: 0, t: 0 });
+        {
+          const r2 = Math.random(), kind = r2 < 0.32 ? 'wolf' : r2 < 0.72 ? 'rat' : r2 < 0.9 ? 'chicken' : 'owl';
+          S.animals.push({ kind, x, y, vx: 0, vy: 0, t: 0 });
+        }
       }
     }
     for (const a of S.animals) {
       if ((a.t -= dt) <= 0) {
         a.t = rand(2, 5);
         if (Math.random() < 0.35) { a.vx = a.vy = 0; }
-        else { const ang = Math.random() * Math.PI * 2, sp = a.kind === 'wolf' ? 1.3 : 1; a.vx = Math.cos(ang) * sp; a.vy = Math.sin(ang) * sp; }
+        else { const ang = Math.random() * Math.PI * 2, sp = WILD[a.kind].sp; a.vx = Math.cos(ang) * sp; a.vy = Math.sin(ang) * sp; }
       }
       a.x += a.vx * dt; a.y += a.vy * dt;
     }
-    // Tamed rats live around the tower.
-    for (const r of S.rats) {
+    // Tamed rats and chickens live around the tower.
+    for (const r of S.rats.concat(S.chickens)) {
       if ((r.t -= dt) <= 0) { r.t = rand(2, 5); const ang = Math.random() * Math.PI * 2, rr = rand(1.8, 3.2); r.tx = Math.cos(ang) * rr; r.ty = Math.sin(ang) * rr; }
       const dx = r.tx - r.x, dy = r.ty - r.y, e = Math.hypot(dx, dy);
       if (e > 0.1) { const sp = Math.min(e, (e > 5 ? 3 : 1.2) * dt); r.x += dx / e * sp; r.y += dy / e * sp; r.face = dx > 0 ? 1 : -1; }
     }
-    // Dogs follow you, and fight any monster that comes close.
+    // Owls fly along with you and heal you and your dogs close by.
+    S.owls.forEach((o, i) => {
+      const a = S.T * 0.8 + i * 2.4, tx = p.x + Math.cos(a) * 1.3, ty = p.y - 0.9 + Math.sin(a) * 0.5;
+      const dx = tx - o.x, dy = ty - o.y, e = Math.hypot(dx, dy);
+      if (e > 16) { o.x = tx; o.y = ty; }
+      else if (e > 0.05) { const st = Math.min(e, Math.max(3, e * 2) * dt); o.x += dx / e * st; o.y += dy / e * st; o.face = dx > 0 ? 1 : -1; }
+      if (p.dead <= 0 && dist(o, p) < OWL_RANGE) p.hp = Math.min(100, p.hp + OWL_HEAL * dt);
+      for (const g of S.dogs) if (g.rest <= 0 && dist(o, g) < OWL_RANGE) g.hp = Math.min(g.max, g.hp + OWL_HEAL * dt);
+    });
+    // Dogs follow you, and fight any monster that comes close. Chickens make them stronger.
+    const power = dogPower();
     S.dogs.forEach((g, i) => {
+      const max = 80 * power;
+      if (g.max !== max) { g.hp *= max / g.max; g.max = max; }
       if (g.rest > 0) { g.rest -= dt; if (g.rest <= 0) { g.hp = g.max; g.x = rand(-1, 1); g.y = 1.8; } return; }
       g.cd -= dt;
       let foe = null, bd = 7;
@@ -543,7 +577,7 @@
       let tx, ty, sp = 5;
       if (foe) {
         tx = foe.x; ty = foe.y; sp = 5.5;
-        if (bd < MON[foe.kind].r + 0.45) { if (g.cd <= 0) { g.cd = 0.6; foe.hp -= 9; } return; }
+        if (bd < MON[foe.kind].r + 0.45) { if (g.cd <= 0) { g.cd = 0.6; foe.hp -= 9 * power; } return; }
       } else {
         g.hp = Math.min(g.max, g.hp + 3 * dt);
         if (p.dead > 0) return;
@@ -819,7 +853,8 @@
     }
 
     for (const r of S.rats) drawThing('🐁', r.x, r.y, 0.5, r.face);
-    for (const a of S.animals) drawThing(a.kind === 'wolf' ? '🐺' : '🐀', a.x, a.y, a.kind === 'wolf' ? 0.8 : 0.55, a.vx);
+    for (const c of S.chickens) drawThing('🐓', c.x, c.y, 0.55, c.face);
+    for (const a of S.animals) drawThing(WILD[a.kind].icon, a.x, a.y, WILD[a.kind].size, a.vx);
     for (const g of S.dogs) {
       if (g.rest > 0) continue;
       drawThing('🐕', g.x, g.y, 0.75, g.face, (px, py) => { if (g.hp < g.max) bar(px, py - s * 0.5, s * 0.6, g.hp / g.max, '#6ee07a'); });
@@ -829,10 +864,17 @@
       if (tool === 'hand') { ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 1; ctx.setLineDash([4, 6]); circle(sx(p.x), sy(p.y), 2.4 * s); ctx.stroke(); ctx.setLineDash([]); }
     }
 
+    for (const o of S.owls) {
+      ctx.fillStyle = 'rgba(120,255,150,.07)'; circle(sx(o.x), sy(o.y), OWL_RANGE * s); ctx.fill();
+      ctx.strokeStyle = 'rgba(120,255,150,.22)'; ctx.lineWidth = 1.5; ctx.stroke();
+      drawThing('🦉', o.x, o.y + Math.sin(S.T * 6 + o.x) * 0.06, 0.6, o.face);
+    }
+
     // shots
     for (const sh of S.shots) {
       if (sh.k === 'bullet') { ctx.fillStyle = '#fff3bf'; circle(sx(sh.x), sy(sh.y), Math.max(2, s * 0.07)); ctx.fill(); }
       else if (sh.k === 'shell') { ctx.fillStyle = '#222'; circle(sx(sh.x), sy(sh.y), s * 0.12); ctx.fill(); ctx.fillStyle = '#ff922b'; circle(sx(sh.x), sy(sh.y), s * 0.05); ctx.fill(); }
+      else if (sh.k === 'arrow' && sh.bolt) { ctx.fillStyle = '#ff4d6d'; circle(sx(sh.x), sy(sh.y), Math.max(2.5, s * 0.08)); ctx.fill(); }
       else if (sh.k === 'arrow') {
         const a = Math.atan2(sh.ty - sh.sy, sh.tx - sh.sx);
         ctx.save(); ctx.translate(sx(sh.x), sy(sh.y)); ctx.rotate(a);
@@ -913,9 +955,10 @@
       lctx.fillStyle = g; lctx.fillRect(x - R, y - R, R * 2, R * 2);
     };
     if (S.player.dead <= 0) light(S.player.x, S.player.y, 4.5, 0.85);
+    for (const o of S.owls) light(o.x, o.y, OWL_RANGE, 0.35);
     light(0, 0, 6.5, 0.9);
     for (const b of S.list) if (BUILD[b.type].turret) light(b.x + 0.5, b.y + 0.5, b.type === 'tfire' ? 3.5 + Math.sin(S.T * 13 + b.x) * 0.2 : 2.2, 0.6);
-    for (const sh of S.shots) if (sh.k !== 'arrow') light(sh.x, sh.y, 0.8, 0.5);
+    for (const sh of S.shots) if (sh.k !== 'arrow' || sh.bolt) light(sh.x, sh.y, 0.8, 0.5);
     for (const f of S.fx) if (f.k === 'boom' || f.k === 'flame') light(f.x, f.y, f.k === 'boom' ? 2.5 : 1, 0.5);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(lc, 0, 0);
@@ -931,7 +974,7 @@
     clearTimeout(toastTimer); toastTimer = setTimeout(() => { toastEl.style.opacity = 0; }, 4000);
   }
   function toolInfo() {
-    if (tool === 'hand') return '✋ Tap trees, rocks, metal and bushes next to you to gather (hold to keep going). Tap a 🐺 or 🐀 to tame it with berries. Tap monsters to hit them.';
+    if (tool === 'hand') return '✋ Tap trees, rocks, metal and bushes next to you to gather (hold to keep going). Tap a 🐺 🐀 🐔 or 🦉 to tame it with berries. Tap monsters to hit them.';
     if (tool === 'remove') return '🗑️ Tap a building to remove it. You get everything back. Drag to remove lots.';
     const d = BUILD[tool];
     return `${d.icon} ${d.name} (${costText(d.cost)}): ${d.about}${d.dir ? ` Facing ${ARROWS[toolDir]}, press R or ↻ to turn.` : ''}`;
@@ -975,7 +1018,8 @@
     const lf = $('h-life');
     lf.textContent = `🏰${Math.ceil(S.tower.hp)} ❤️${Math.ceil(S.player.hp)}`;
     lf.classList.toggle('warn', S.tower.hp < S.tower.max * 0.35);
-    $('h-pets').textContent = `🐁${S.rats.length}${S.rats.length ? ` (+${Math.round(S.rats.length * RAT_BOOST * 100)}%)` : ''} 🐕${S.dogs.length}`;
+    const pct = (n, b) => (n ? ` (+${Math.round(n * b * 100)}%)` : '');
+    $('h-pets').textContent = `🐁${S.rats.length}${pct(S.rats.length, RAT_BOOST)} 🐕${S.dogs.length} 🐓${S.chickens.length}${pct(S.chickens.length, CHICK_BOOST)} 🦉${S.owls.length}`;
     for (const b of toolsEl.querySelectorAll('.tool[data-t]')) { const d = BUILD[b.dataset.t]; b.classList.toggle('poor', !!d && !afford(d.cost)); }
     const rd = $('rot-dir'); if (rd) rd.textContent = ARROWS[toolDir];
     if (performance.now() > sayUntil) { infoEl.textContent = toolInfo(); infoEl.classList.remove('bad'); }
