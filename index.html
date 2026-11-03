@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Builder World</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg1: #13241a; --bg2: #24442c;
+    --ink: #fff7ec; --muted: #b8ccb9;
+    --card: rgba(255,255,255,0.08); --line: rgba(255,255,255,0.16);
+    --accent: #ffc94d; --panel: rgba(12,22,16,0.82);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { background: var(--bg1); }
+  body { margin: 0; color: var(--ink); font-family: 'Fredoka', ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
+    background: radial-gradient(120% 60% at 50% 0%, var(--bg2), var(--bg1)) no-repeat, var(--bg1); min-height: 100vh; overflow: hidden; }
+  button { font: inherit; color: inherit; }
+  a { color: var(--accent); }
+  [hidden] { display: none !important; }
+
+  .screen { position: fixed; inset: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: center; z-index: 20;
+    padding: calc(24px + env(safe-area-inset-top, 0px)) 16px calc(20px + env(safe-area-inset-bottom, 0px));
+    background: radial-gradient(120% 60% at 50% 0%, var(--bg2), var(--bg1)) no-repeat, var(--bg1); }
+  .screen.dim { background: rgba(6,12,9,0.78); justify-content: center; }
+  .col { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 14px; margin: auto 0; }
+  h1 { margin: 0; font-size: clamp(42px, 13vw, 66px); line-height: .92; text-align: center; letter-spacing: 1px; }
+  h1 small { display: block; font-size: .3em; color: var(--muted); letter-spacing: 3px; margin-top: 8px; font-weight: 500; }
+  h2 { margin: 0; font-size: 22px; }
+  p { margin: 0; line-height: 1.4; }
+  .muted { color: var(--muted); }
+  .card { background: var(--card); border: 2px solid var(--line); border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: center; }
+  .btn { border-radius: 16px; padding: 12px 18px; font-size: 18px; font-weight: 600; cursor: pointer;
+    background: var(--card); border: 2px solid var(--line); transition: transform .08s; text-decoration: none; color: var(--ink); }
+  .btn:active { transform: scale(.96); }
+  .btn.primary { background: var(--accent); color: #2b1d00; border-color: transparent; box-shadow: 0 5px 0 #c1891a; }
+  .btn.primary:active { box-shadow: 0 2px 0 #c1891a; transform: translateY(3px); }
+  ul.rules { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 5px; line-height: 1.35; }
+  .chart { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 15px; }
+  .chart b { font-weight: 600; }
+
+  /* The game */
+  #game { position: fixed; inset: 0; overscroll-behavior: none; -webkit-user-select: none; user-select: none; }
+  #cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
+  #hud { position: absolute; top: 0; left: 0; right: 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+    padding: calc(6px + env(safe-area-inset-top, 0px)) 8px 0; pointer-events: none; }
+  .pill { background: var(--panel); border: 2px solid var(--line); border-radius: 12px; padding: 3px 10px; font-weight: 600; font-size: 16px; white-space: nowrap; }
+  .pill.night { border-color: #7b8cff; }
+  .pill.warn { border-color: #ff8a8a; color: #ffb3b3; }
+  .pill .lbl { color: var(--muted); font-size: 13px; font-weight: 500; margin-right: 4px; }
+  #hud .spacer { flex: 1; }
+  #menu-btn { pointer-events: auto; cursor: pointer; }
+  @media (max-width: 520px) { .pill { font-size: 14px; padding: 2px 8px; } .pill .lbl { display: none; } }
+
+  #bottom { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; pointer-events: none; }
+  #info { align-self: center; max-width: min(640px, calc(100% - 16px)); margin: 0 8px 6px; background: var(--panel); border: 2px solid var(--line);
+    border-radius: 12px; padding: 4px 12px; font-size: 14px; text-align: center; line-height: 1.3; }
+  #info.bad { border-color: #ff8a8a; color: #ffd0d0; }
+  #tools { pointer-events: auto; display: flex; gap: 6px; overflow-x: auto; padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+    background: var(--panel); border-top: 2px solid var(--line); scrollbar-width: thin; }
+  .tool { flex: 0 0 auto; width: 66px; border-radius: 12px; border: 2px solid var(--line); background: var(--card); padding: 3px 2px; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 1px; line-height: 1.1; }
+  .tool .i { font-size: 22px; }
+  .tool .n { font-size: 12px; font-weight: 600; }
+  .tool .c { font-size: 10px; color: var(--muted); white-space: nowrap; }
+  .tool.on { background: var(--accent); color: #2b1d00; border-color: transparent; }
+  .tool.on .c { color: #5a4100; }
+  .tool.poor:not(.on) { opacity: .45; }
+  .tool .k { font-size: 9px; color: var(--muted); }
+  .tool.on .k { color: #5a4100; }
+
+  #toast { position: absolute; left: 50%; top: calc(64px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); z-index: 5;
+    background: var(--panel); border: 2px solid var(--accent); border-radius: 14px; padding: 8px 16px; font-weight: 600; font-size: 17px;
+    text-align: center; max-width: calc(100% - 24px); pointer-events: none; transition: opacity .4s; }
+</style>
+</head>
+<body>
+
+<section class="screen" id="start">
+  <div class="col">
+    <h1>Builder World<small>GATHER · TAME · BUILD · SURVIVE THE NIGHT</small></h1>
+    <div class="card">
+      <h2>How to play</h2>
+      <ul class="rules">
+        <li>You start next to your <b>🏰 centre tower</b> in a world that goes on forever. Walk with <b>WASD / arrow keys</b>, or the joystick on a phone.</li>
+        <li>Tap 🌲 trees, 🪨 rocks, 🔩 metal scraps and 🫐 berry bushes next to you to gather. Hold to keep gathering.</li>
+        <li>Stuff only counts once it reaches the tower. Walk your backpack there, or build <b>harvesters</b> and run <b>conveyor belts</b> into the tower.</li>
+        <li>Tame animals with berries: <b>🐺 + 5🫐 = 🐕 dog</b> (fights monsters), <b>🐀 + 2🫐 = 🐁 tamed rat</b> (every rat makes harvesters 20% faster).</li>
+        <li>At night monsters come for the tower. Build <b>🧱 walls</b> and <b>turrets</b> before dark!</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2>Buildings</h2>
+      <div class="chart" id="chart-build"></div>
+    </div>
+    <div class="card">
+      <h2>Monsters</h2>
+      <div class="chart" id="chart-mon"></div>
+    </div>
+    <div class="row">
+      <button class="btn primary" id="continue" type="button" hidden>Continue</button>
+      <button class="btn primary" id="new" type="button">New world</button>
+      <a class="btn" href="/">All games</a>
+    </div>
+    <p class="muted" id="best" style="text-align:center"></p>
+  </div>
+</section>
+
+<section id="game" hidden>
+  <canvas id="cv" aria-label="The world"></canvas>
+  <div id="hud">
+    <span class="pill" id="h-stock"></span>
+    <span class="pill" id="h-pack"></span>
+    <span class="pill" id="h-time"></span>
+    <span class="pill" id="h-life"></span>
+    <span class="pill" id="h-pets"></span>
+    <span class="spacer"></span>
+    <button class="pill" id="menu-btn" type="button" aria-label="Menu">☰</button>
+  </div>
+  <div id="toast" style="opacity:0"></div>
+  <div id="bottom">
+    <div id="info"></div>
+    <div id="tools"></div>
+  </div>
+</section>
+
+<section class="screen dim" id="paused" hidden>
+  <div class="col" style="max-width:360px">
+    <h2 style="text-align:center">Paused</h2>
+    <button class="btn primary" id="resume" type="button">Keep playing</button>
+    <button class="btn" id="to-menu" type="button">Menu (your world is saved)</button>
+  </div>
+</section>
+
+<section class="screen dim" id="over" hidden>
+  <div class="col" style="max-width:400px">
+    <h1 style="font-size:44px">Tower down!</h1>
+    <p id="over-text" style="text-align:center"></p>
+    <button class="btn primary" id="again" type="button">New world</button>
+    <button class="btn" id="over-menu" type="button">Menu</button>
+  </div>
+</section>
+
+<script src="builder.js?v=1"></script>
+</body>
+</html>
