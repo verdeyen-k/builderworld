@@ -32,7 +32,7 @@
     splitter: { name: 'Splitter', short: 'Splitter', icon: '🔀', cost: { metal: 2, rock: 1 }, hp: 35, dir: true,
                 about: 'Sends things left, straight on and right, taking turns.' },
     over:     { name: 'Over Belt', short: 'Over Belt', icon: '🌉', cost: { metal: 2, rock: 2 }, hp: 25, dir: true,
-                about: 'A raised belt that goes over other belts so lines can cross. Drag to lay a line. Stuff drops off its end onto a belt or the tower.' },
+                about: 'A raised belt that goes over other belts and walls so lines can cross. Drag to lay a line. Stuff drops off its end onto a belt or the tower.' },
     wall:     { name: 'Wall', short: 'Wall', icon: '🧱', cost: { wood: 2, rock: 2 }, hp: 90, solid: true,
                 about: 'Monsters have to break through walls to get past. Drag to build a line.' },
     hwood:    { name: 'Wood Harvester', short: 'Wood H.', icon: '🪓', cost: { metal: 1, wood: 2 }, hp: 50, dir: true, solid: true,
@@ -191,10 +191,10 @@
     const g = S.builds.get(key(x, y));
     if (type === 'over') {
       if (S.raised.has(key(x, y))) return 'There is already an over belt there.';
-      if (g && g.type !== 'belt' && g.type !== 'splitter') return 'Over belts can only go over belts and splitters, or on empty ground.';
+      if (g && g.type !== 'belt' && g.type !== 'splitter' && g.type !== 'wall') return 'Over belts can only go over belts, splitters and walls, or on empty ground.';
       if (g) return afford(d.cost) ? null : `Not enough at the tower. ${d.name} costs ${costText(d.cost)}.`;
     } else if (g) return 'Something is already built there.';
-    else if (S.raised.has(key(x, y)) && type !== 'belt' && type !== 'splitter') return 'Only belts and splitters fit under an over belt.';
+    else if (S.raised.has(key(x, y)) && type !== 'belt' && type !== 'splitter' && type !== 'wall') return 'Only belts, splitters and walls fit under an over belt.';
     const n = nodeAt(x, y);
     if (d.on) { if (!n || n.type !== d.on) return `Build the ${d.name} on ${d.on === 'tree' ? 'a tree' : d.on === 'rock' ? 'a rock' : 'metal scraps'}.`; }
     else if (n && n.type !== 'berry') return `There's a ${NODES[n.type].name} in the way. Tap it to gather it first.`;

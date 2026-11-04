@@ -16,7 +16,7 @@ You start next to your 🏰 **centre tower**. Walk with **WASD / arrow keys**, o
 | | Cost | What it does |
 |---|---|---|
 | ➡️ Conveyor belt | 1🔩 1🪨 | Carries stuff the way it points. Drag to lay a line. |
-| 🌉 Over belt | 2🔩 2🪨 | A raised belt that goes over other belts, so two lines can cross. Stuff drops off its end onto a belt or the tower. |
+| 🌉 Over belt | 2🔩 2🪨 | A raised belt that goes over other belts and walls, so two lines can cross. Stuff drops off its end onto a belt or the tower. |
 | 🔀 Splitter | 2🔩 1🪨 | Sends things left, straight on and right, taking turns. |
 | 🧱 Wall | 2🪵 2🪨 | Monsters must break through. Drag to build a line. |
 | 🪓 Wood harvester | 1🔩 2🪵 | Build on a tree. Pushes wood out of its arrow side. |
