@@ -31,6 +31,8 @@
                 about: 'Carries stuff the way the arrow points. Drag to lay a line, and lead it into the tower!' },
     splitter: { name: 'Splitter', short: 'Splitter', icon: '🔀', cost: { metal: 2, rock: 1 }, hp: 35, dir: true,
                 about: 'Sends things left, straight on and right, taking turns.' },
+    over:     { name: 'Over Belt', short: 'Over Belt', icon: '🌉', cost: { metal: 2, rock: 2 }, hp: 25, dir: true,
+                about: 'A raised belt that goes over other belts so lines can cross. Drag to lay a line. Stuff drops off its end onto a belt or the tower.' },
     wall:     { name: 'Wall', short: 'Wall', icon: '🧱', cost: { wood: 2, rock: 2 }, hp: 90, solid: true,
                 about: 'Monsters have to break through walls to get past. Drag to build a line.' },
     hwood:    { name: 'Wood Harvester', short: 'Wood H.', icon: '🪓', cost: { metal: 1, wood: 2 }, hp: 50, dir: true, solid: true,
@@ -65,9 +67,9 @@
   const WILD = { wolf: { icon: '🐺', size: 0.8, sp: 1.3 }, rat: { icon: '🐀', size: 0.55, sp: 1 },
                  chicken: { icon: '🐔', size: 0.6, sp: 0.9 }, owl: { icon: '🦉', size: 0.65, sp: 1.6 } };
 
-  const TOOLS = ['hand', 'belt', 'splitter', 'wall', 'hwood', 'hrock', 'hmetal', 'tbasic', 'tsniper', 'tfire', 'tmega', 'remove'];
+  const TOOLS = ['hand', 'belt', 'over', 'splitter', 'wall', 'hwood', 'hrock', 'hmetal', 'tbasic', 'tsniper', 'tfire', 'tmega', 'remove'];
   const TOOL_KEYS = { '1': 'belt', '2': 'splitter', '3': 'wall', '4': 'hwood', '5': 'hrock', '6': 'hmetal',
-                      '7': 'tbasic', '8': 'tsniper', '9': 'tfire', '0': 'tmega', 'x': 'remove', 'q': 'hand', 'escape': 'hand' };
+                      '7': 'tbasic', '8': 'tsniper', '9': 'tfire', '0': 'tmega', 'o': 'over', 'x': 'remove', 'q': 'hand', 'escape': 'hand' };
   const SAVE_KEY = 'builderworld-save-v1', BEST_KEY = 'builderworld-best';
 
   // ── Little helpers ───────────────────────────────────────────────────────
@@ -123,7 +125,7 @@
     S = {
       seed: (Math.random() * 1e9) | 0, T: 0, phase: 'day', clock: 0, night: 0, warned: false,
       stock: { ...START }, pack: { wood: 0, rock: 0, metal: 0, berry: 0 },
-      changed: new Map(), builds: new Map(), list: [], tower: null,
+      changed: new Map(), builds: new Map(), raised: new Map(), list: [], tower: null,
       player: { x: 0, y: 2.6, hp: 100, dead: 0, calm: 9, cd: 0, face: -1 },
       monsters: [], animals: [], dogs: [], rats: [], chickens: [], owls: [], shots: [], fx: [], queue: [],
       animalT: 0, kills: 0, over: false,
@@ -161,7 +163,7 @@
     for (const [t, x, y, dir, hp] of d.builds) {
       if (!BUILD[t]) continue;
       const b = makeBuilding(t, x, y, dir); b.hp = hp;
-      S.builds.set(key(x, y), b); S.list.push(b);
+      layer(t).set(key(x, y), b); S.list.push(b);
     }
     for (let i = 0; i < d.rats; i++) addRat(rand(-2, 2), rand(1.5, 3));
     for (let i = 0; i < d.dogs; i++) addDog(S.player.x + rand(-1, 1), S.player.y + rand(-1, 1));
@@ -175,6 +177,8 @@
   const pay = (c) => { for (const k in c) S.stock[k] -= c[k]; };
   const refund = (c) => { for (const k in c) S.stock[k] += c[k]; };
   const isSolid = (b) => b.type === 'tower' || !!BUILD[b.type].solid;
+  const layer = (t) => (t === 'over' ? S.raised : S.builds);   // over belts sit on their own layer, above the ground
+  const topAt = (x, y) => S.raised.get(key(x, y)) || S.builds.get(key(x, y));
   function solidAt(x, y) { const b = S.builds.get(key(x, y)); return b && isSolid(b) ? b : null; }
 
   function makeBuilding(type, x, y, dir) {
@@ -184,7 +188,13 @@
   }
   function whyNot(type, x, y) {
     const d = BUILD[type];
-    if (S.builds.has(key(x, y))) return 'Something is already built there.';
+    const g = S.builds.get(key(x, y));
+    if (type === 'over') {
+      if (S.raised.has(key(x, y))) return 'There is already an over belt there.';
+      if (g && g.type !== 'belt' && g.type !== 'splitter') return 'Over belts can only go over belts and splitters, or on empty ground.';
+      if (g) return afford(d.cost) ? null : `Not enough at the tower. ${d.name} costs ${costText(d.cost)}.`;
+    } else if (g) return 'Something is already built there.';
+    else if (S.raised.has(key(x, y)) && type !== 'belt' && type !== 'splitter') return 'Only belts and splitters fit under an over belt.';
     const n = nodeAt(x, y);
     if (d.on) { if (!n || n.type !== d.on) return `Build the ${d.name} on ${d.on === 'tree' ? 'a tree' : d.on === 'rock' ? 'a rock' : 'metal scraps'}.`; }
     else if (n && n.type !== 'berry') return `There's a ${NODES[n.type].name} in the way. Tap it to gather it first.`;
@@ -198,18 +208,18 @@
     pay(d.cost);
     if (!d.on && nodeAt(x, y)) S.changed.set(key(x, y), null);     // building over a berry bush clears it
     const b = makeBuilding(type, x, y, dir);
-    S.builds.set(key(x, y), b); S.list.push(b);
+    layer(type).set(key(x, y), b); S.list.push(b);
     fx({ k: 'poof', x: x + 0.5, y: y + 0.5, life: 0.3, r: 0.6, c: '255,255,255' });
     return b;
   }
   function removeBuilding(b, giveBack) {
-    S.builds.delete(key(b.x, b.y));
+    layer(b.type).delete(key(b.x, b.y));
     const i = S.list.indexOf(b); if (i >= 0) S.list.splice(i, 1);
     b.dead = true;
     if (giveBack) { refund(BUILD[b.type].cost); if (b.item) S.stock[b.item]++; }
   }
   function removeAt(x, y, quiet) {
-    const b = S.builds.get(key(x, y));
+    const b = topAt(x, y);
     if (!b) return;
     if (b.type === 'tower') { if (!quiet) say("You can't remove the tower!", true); return; }
     removeBuilding(b, true);
@@ -228,7 +238,7 @@
   // Can (x, y) take this item, coming in heading in direction dir?
   function accept(x, y, item, dir) {
     const b = S.builds.get(key(x, y));
-    if (!b) return false;
+    if (!b) return acceptOver(x, y, item, dir);     // nothing on the ground: climb onto an over belt if there is one
     if (b.type === 'tower') { S.stock[item]++; return true; }
     if (b.type === 'belt' || b.type === 'splitter') {
       if (b.item || b.dir === (dir + 2) % 4) return false;    // full, or pointing back at us
@@ -236,6 +246,14 @@
     }
     return false;
   }
+
+  function acceptOver(x, y, item, dir) {
+    const o = S.raised.get(key(x, y));
+    if (!o || o.item || o.dir === (dir + 2) % 4) return false;
+    o.item = item; o.prog = 0; return true;
+  }
+  // Where an over belt puts things: onto the next over belt, or down onto whatever is on the ground.
+  const overNext = (x, y, item, dir) => (S.raised.has(key(x, y)) ? acceptOver(x, y, item, dir) : accept(x, y, item, dir));
 
   // ── Animals ──────────────────────────────────────────────────────────────
   const dogPower = () => 1 + CHICK_BOOST * S.chickens.length;
@@ -408,6 +426,11 @@
         if (b.item) {
           b.prog = Math.min(1, b.prog + dt * BELT_SPEED);
           if (b.prog >= 1 && accept(b.x + DX[b.dir], b.y + DY[b.dir], b.item, b.dir)) b.item = null;
+        }
+      } else if (b.type === 'over') {
+        if (b.item) {
+          b.prog = Math.min(1, b.prog + dt * BELT_SPEED);
+          if (b.prog >= 1 && overNext(b.x + DX[b.dir], b.y + DY[b.dir], b.item, b.dir)) b.item = null;
         }
       } else if (b.type === 'splitter') {
         if (b.item) {
@@ -632,7 +655,7 @@
     // Gather
     if (gather(tx, ty, false)) { if (press) press.hold = true; return; }
     // Look at a building
-    const b = S.builds.get(key(tx, ty));
+    const b = topAt(tx, ty);
     if (b) say(describe(b));
   }
   function describe(b) {
@@ -646,14 +669,14 @@
   // Dragging with a belt, wall or remove lays a whole line.
   function stepDrag(tx, ty) {
     const pr = press, dx = tx - pr.lx, dy = ty - pr.ly;
-    if (tool === 'belt') {
-      const dir = dx === 1 ? 0 : dy === 1 ? 1 : dx === -1 ? 2 : 3;
+    if (tool === 'belt' || tool === 'over') {
+      const dir = dx === 1 ? 0 : dy === 1 ? 1 : dx === -1 ? 2 : 3, L = layer(tool);
       toolDir = dir;
-      const prev = S.builds.get(key(pr.lx, pr.ly));
-      if (prev && prev.type === 'belt' && pr.mine.has(key(pr.lx, pr.ly))) prev.dir = dir;
-      const here = S.builds.get(key(tx, ty));
-      if (here && here.type === 'belt') { here.dir = dir; pr.mine.add(key(tx, ty)); }
-      else if (place('belt', tx, ty, dir, true)) pr.mine.add(key(tx, ty));
+      const prev = L.get(key(pr.lx, pr.ly));
+      if (prev && prev.type === tool && pr.mine.has(key(pr.lx, pr.ly))) prev.dir = dir;
+      const here = L.get(key(tx, ty));
+      if (here && here.type === tool) { here.dir = dir; pr.mine.add(key(tx, ty)); }
+      else if (place(tool, tx, ty, dir, true)) pr.mine.add(key(tx, ty));
     } else if (tool === 'wall') place('wall', tx, ty, 0, true);
     else if (tool === 'remove') removeAt(tx, ty, true);
     pr.lx = tx; pr.ly = ty;
@@ -738,7 +761,22 @@
 
   function drawBuilding(b, px, py, s) {
     const d = BUILD[b.type], cx = px + s / 2, cy = py + s / 2;
-    if (b.type === 'belt') {
+    if (b.type === 'over') {
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(b.dir * Math.PI / 2);
+      const w = s * 0.62;
+      ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(-s / 2, -w / 2 + s * 0.12, s, w);              // shadow on the ground
+      ctx.fillStyle = '#8a94a3'; ctx.fillRect(-s / 2, -w / 2 - s * 0.06, s, w);
+      ctx.fillStyle = '#4b5361'; ctx.fillRect(-s / 2, -w / 2 + s * 0.02 - s * 0.06, s, w - s * 0.04 * 2);
+      ctx.fillStyle = '#c7cfda'; ctx.fillRect(-s / 2, -w / 2 - s * 0.06, s, s * 0.05); ctx.fillRect(-s / 2, w / 2 - s * 0.11, s, s * 0.05);
+      ctx.strokeStyle = 'rgba(140,220,255,.75)'; ctx.lineWidth = Math.max(1.5, s * 0.06); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      const off = (S.T * BELT_SPEED) % 1;
+      ctx.beginPath();
+      for (let k = 0; k < 2; k++) {
+        const u = (((k * 0.5 + off) % 1) - 0.5) * s * 0.8;
+        ctx.moveTo(u - s * 0.06, -s * 0.18); ctx.lineTo(u + s * 0.05, -s * 0.06); ctx.lineTo(u - s * 0.06, s * 0.06);
+      }
+      ctx.stroke(); ctx.restore();
+    } else if (b.type === 'belt') {
       ctx.fillStyle = '#3d4249'; rrect(px + 1, py + 1, s - 2, s - 2, s * 0.12); ctx.fill();
       ctx.save(); ctx.translate(cx, cy); ctx.rotate(b.dir * Math.PI / 2);
       ctx.fillStyle = '#2a2e34'; ctx.fillRect(-s / 2 + 1, -s * 0.3, s - 2, s * 0.6);
@@ -843,6 +881,12 @@
       const f = b.type === 'splitter' ? 0 : b.prog - 0.5;
       emoji(ITEMS[b.item], sx(x + 0.5 + DX[b.dir] * f), sy(y + 0.5 + DY[b.dir] * f), s * 0.42);
     }
+    // over belts, up above the ground belts, with what they carry
+    for (const o of S.raised.values()) {
+      if (o.x < x0 || o.x > x1 || o.y < y0 || o.y > y1) continue;
+      drawBuilding(o, sx(o.x), sy(o.y), s);
+      if (o.item) { const f = o.prog - 0.5; emoji(ITEMS[o.item], sx(o.x + 0.5 + DX[o.dir] * f), sy(o.y + 0.5 + DY[o.dir] * f) - s * 0.12, s * 0.4); }
+    }
     drawTower(s);
 
     // trees go over everything on the ground so they look tall
@@ -911,7 +955,7 @@
       ctx.globalAlpha = 1;
       if (bad) { ctx.fillStyle = 'rgba(255,60,60,.3)'; ctx.fillRect(sx(hx), sy(hy), s, s); }
       if (d.range) { ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.setLineDash([6, 6]); circle(sx(hx + 0.5), sy(hy + 0.5), d.range * s); ctx.stroke(); ctx.setLineDash([]); }
-    } else if (hover && tool === 'remove' && S.builds.has(key(hover.tx, hover.ty))) {
+    } else if (hover && tool === 'remove' && topAt(hover.tx, hover.ty)) {
       ctx.strokeStyle = '#ff6b6b'; ctx.lineWidth = 3; ctx.strokeRect(sx(hover.tx) + 2, sy(hover.ty) + 2, s - 4, s - 4);
     }
 
@@ -1057,7 +1101,7 @@
     if (e.pointerType === 'mouse') hover = { tx, ty };
     if (!press || e.pointerId !== press.id || !playing()) return;
     if (tool === 'hand') { press.tx = tx; press.ty = ty; }
-    else if (tool === 'belt' || tool === 'wall' || tool === 'remove') dragTo(tx, ty);
+    else if (tool === 'belt' || tool === 'over' || tool === 'wall' || tool === 'remove') dragTo(tx, ty);
   });
   const endPress = (e) => {
     if (joy && e.pointerId === joy.id) joy = null;
