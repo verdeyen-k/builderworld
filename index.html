@@ -103,6 +103,7 @@
         <li>Tap 🌲 trees, 🪨 rocks, 🔩 metal scraps and 🫐 berry bushes next to you to gather. Hold to keep gathering.</li>
         <li>Stuff only counts once it reaches the tower. Walk your backpack there, or build <b>harvesters</b> and run <b>conveyor belts</b> into the tower.</li>
         <li>Tame animals with berries: <b>🐺 + 5🫐 = 🐕 dog</b> (fights monsters), <b>🐀 + 2🫐 = 🐁 tamed rat</b> (every rat makes harvesters 5% faster), <b>🐔 + 7🫐 = 🐓 chicken</b> (every chicken makes dogs 5% stronger), <b>🦉 + 9🫐 = owl</b> (follows you and heals you and your dogs nearby).</li>
+        <li>Belt rocks into a <b>🏭 furnace</b> to make gems: <b>💠 xenonite</b> builds a <b>🚗 car</b> (4🪨 1💠) that you can drive and put a turret on, and <b>🔶 kenalite</b> makes belts 2× faster (pick ✨ Speed up and tap a belt).</li>
         <li>At night monsters come for the tower. Build <b>🧱 walls</b> and <b>turrets</b> before dark!</li>
       </ul>
     </div>
@@ -168,12 +169,12 @@
   </div>
 </section>
 
-<script src="builder.js?v=8"></script>
+<script src="builder.js?v=9"></script>
 <script>
   // Browsers keep an old copy of this page for a while. Ask the site which version is newest,
   // and if this page is older, load the new one straight away.
   (function () {
-    var V = '8';
+    var V = '9';
     fetch('version.txt?t=' + Date.now(), { cache: 'no-store' })
       .then(function (r) { return r.ok ? r.text() : ''; })
       .then(function (t) {

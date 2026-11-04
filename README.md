@@ -18,6 +18,9 @@ You start next to your 🏰 **centre tower**. Walk with **WASD / arrow keys**, o
 | ➡️ Conveyor belt | 1🔩 1🪨 | Carries stuff the way it points. Drag to lay a line. |
 | 🌉 Over belt | 2🔩 2🪨 | A raised belt that goes over other belts and walls, so two lines can cross. Stuff drops off its end onto a belt or the tower. |
 | 🔀 Splitter | 2🔩 1🪨 | Sends things left, straight on and right, taking turns. |
+| 🏭 Furnace | 9🪨 | Belt rocks into it. Each rock becomes 💠 xenonite or 🔶 kenalite (50% each), which come out of its arrow side. |
+| ✨ Speed up | 1🔶 | Tap or drag over belts, over belts and splitters to make them 2× faster. |
+| 🚗 Car | 4🪨 1💠 | Tap it to get in and drive 2.4× faster than walking. Pick a turret and tap a car to put the turret on it. |
 | 🧱 Wall | 2🪵 2🪨 | Monsters must break through. Drag to build a line. |
 | 🪓 Wood harvester | 1🔩 2🪵 | Build on a tree. Pushes wood out of its arrow side. |
 | ⛏️ Rock harvester | 2🔩 1🪨 | Build on a rock. |
@@ -51,7 +54,7 @@ The turret costs weren't in the original idea, so these are a first guess. Chang
 |---|---|---|
 | Move | WASD / arrows | Joystick |
 | Gather, tame, hit | Click | Tap |
-| Pick a building | 1–9, 0, O (over belt) | Bottom bar |
+| Pick a building | 1–9, 0, O (over belt), F (furnace), T (speed up), C (car) | Bottom bar |
 | Turn a building | R | ↻ Turn |
 | Remove | X, or right-click | 🗑️ Remove |
 | Zoom | Mouse wheel, + / − | |

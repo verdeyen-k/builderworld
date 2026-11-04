@@ -14,11 +14,13 @@
   const CHICK_BOOST = 0.05;      // every tamed chicken makes dogs 5% stronger
   const OWL_RANGE = 4, OWL_HEAL = 6;   // owls heal you and your dogs this close, this much a second
   const TOWER_HP = 600;
-  const START = { wood: 6, rock: 6, metal: 6, berry: 0 };
+  const START = { wood: 6, rock: 6, metal: 6, berry: 0, xenonite: 0, kenalite: 0 };
+  const CAR_SPEED = 2.4;         // cars go this many times faster than walking
+  const FAST_BELT = 2;           // belts treated with kenalite go this many times faster
   const DX = [1, 0, -1, 0], DY = [0, 1, 0, -1];            // 0 right, 1 down, 2 left, 3 up
   const ARROWS = ['→', '↓', '←', '↑'];
 
-  const ITEMS = { wood: '🪵', rock: '🪨', metal: '🔩', berry: '🫐' };
+  const ITEMS = { wood: '🪵', rock: '🪨', metal: '🔩', berry: '🫐', xenonite: '💠', kenalite: '🔶' };
   const NODES = {
     tree:  { name: 'tree', gives: 'wood', amt: 6 },
     rock:  { name: 'rock', gives: 'rock', amt: 5 },
@@ -39,6 +41,10 @@
                 on: 'tree', makes: 'wood', every: 4, color: '#7a5230', about: 'Build it on a tree. Pushes wood out of its arrow side.' },
     hrock:    { name: 'Rock Harvester', short: 'Rock H.', icon: '⛏️', cost: { metal: 2, rock: 1 }, hp: 50, dir: true, solid: true,
                 on: 'rock', makes: 'rock', every: 4.5, color: '#6d6d78', about: 'Build it on a rock. Pushes rock out of its arrow side.' },
+    furnace:  { name: 'Furnace', short: 'Furnace', icon: '🏭', cost: { rock: 9 }, hp: 80, dir: true, solid: true, smelt: 3,
+                about: 'Belt rocks into it. Each rock turns into 💠 xenonite or 🔶 kenalite (50% each), which come out of its arrow side.' },
+    car:      { name: 'Car', short: 'Car', icon: '🚗', cost: { rock: 4, xenonite: 1 }, hp: 1, vehicle: true,
+                about: 'Tap it to get in, and drive more than twice as fast. Tap your car again to get out. Pick a turret and tap a car to put the turret on it!' },
     hmetal:   { name: 'Metal Harvester', short: 'Metal H.', icon: '🧲', cost: { metal: 3 }, hp: 50, dir: true, solid: true,
                 on: 'metal', makes: 'metal', every: 6, color: '#4f6f86', about: 'Build it on metal scraps. Pushes metal out of its arrow side.' },
     tbasic:   { name: 'Basic Turret', short: 'Basic', icon: '🔫', cost: { wood: 2, rock: 2, metal: 2 }, hp: 60, solid: true, turret: true,
@@ -67,9 +73,10 @@
   const WILD = { wolf: { icon: '🐺', size: 0.8, sp: 1.3 }, rat: { icon: '🐀', size: 0.55, sp: 1 },
                  chicken: { icon: '🐔', size: 0.6, sp: 0.9 }, owl: { icon: '🦉', size: 0.65, sp: 1.6 } };
 
-  const TOOLS = ['hand', 'belt', 'over', 'splitter', 'wall', 'hwood', 'hrock', 'hmetal', 'tbasic', 'tsniper', 'tfire', 'tmega', 'remove'];
+  const TOOLS = ['hand', 'belt', 'over', 'splitter', 'wall', 'hwood', 'hrock', 'hmetal', 'furnace', 'treat', 'car', 'tbasic', 'tsniper', 'tfire', 'tmega', 'remove'];
+  const TREAT = { icon: '✨', short: 'Speed up', cost: { kenalite: 1 } };   // treat a belt with kenalite to make it faster
   const TOOL_KEYS = { '1': 'belt', '2': 'splitter', '3': 'wall', '4': 'hwood', '5': 'hrock', '6': 'hmetal',
-                      '7': 'tbasic', '8': 'tsniper', '9': 'tfire', '0': 'tmega', 'o': 'over', 'x': 'remove', 'q': 'hand', 'escape': 'hand' };
+                      '7': 'tbasic', '8': 'tsniper', '9': 'tfire', '0': 'tmega', 'o': 'over', 'f': 'furnace', 't': 'treat', 'c': 'car', 'x': 'remove', 'q': 'hand', 'escape': 'hand' };
   const BEST_KEY = 'builderworld-best';
   // Four save files, one per colour.
   const SLOTS = [{ id: 'r', name: 'Red', dot: '🔴', c: '#ff6b6b' }, { id: 'b', name: 'Blue', dot: '🔵', c: '#4dabf7' },
@@ -109,7 +116,7 @@
   const LOOKS = ['🧑‍🔧', '👷', '🧑‍🚀', '🧑‍🌾', '🧑‍🍳', '🥷', '🧑‍🎨', '🧙'];
   const PCOL = ['#ffc94d', '#4dabf7', '#ff6b6b', '#69db7c', '#da77f2', '#ff922b', '#3bc9db', '#f783ac'];
   function makePlayer(id) {
-    return { id, x: rand(-0.8, 0.8), y: 2.6, hp: 100, dead: 0, calm: 9, cd: 0, face: -1, press: null,
+    return { id, x: rand(-0.8, 0.8), y: 2.6, hp: 100, dead: 0, calm: 9, cd: 0, face: -1, press: null, car: 0,
              pack: { wood: 0, rock: 0, metal: 0, berry: 0 } };
   }
   const playerById = (id) => S.players.find((q) => q.id === id) || S.players[0];
@@ -143,7 +150,7 @@
       stock: { ...START }, nid: 1,
       changed: new TrackMap(), builds: new Map(), raised: new Map(), list: [], tower: null,
       players: [makePlayer(1)],
-      monsters: [], animals: [], dogs: [], rats: [], chickens: [], owls: [], shots: [], fx: [], queue: [],
+      monsters: [], animals: [], dogs: [], rats: [], chickens: [], owls: [], cars: [], shots: [], fx: [], queue: [],
       animalT: 0, kills: 0, over: false,
     };
     me = S.players[0]; me.x = 0;
@@ -165,7 +172,8 @@
       v: 1, seed: S.seed, T: S.T, clock: S.clock, night: S.night, stock: S.stock, pack: S.players[0].pack, kills: S.kills,
       px: S.players[0].x, py: S.players[0].y, tower: S.tower.hp, rats: S.rats.length, dogs: S.dogs.length,
       chickens: S.chickens.length, owls: S.owls.length,
-      changed: [...S.changed], builds: S.list.map((b) => [b.type, b.x, b.y, b.dir, Math.ceil(b.hp)]),
+      changed: [...S.changed], builds: S.list.map((b) => [b.type, b.x, b.y, b.dir, Math.ceil(b.hp), b.fast ? 1 : 0]),
+      cars: S.cars.map((c) => [r2(c.x), r2(c.y), c.gun || '']),
     };
     store.set(saveKey(), JSON.stringify(data));
   }
@@ -175,13 +183,14 @@
     if (!d || d.v !== 1) return false;
     newWorld();
     S.changed = new TrackMap(d.changed); S.seed = d.seed; S.T = d.T; S.clock = d.clock; S.night = d.night;
-    S.stock = d.stock; me.pack = d.pack; S.kills = d.kills || 0;
+    S.stock = { ...START, ...d.stock }; me.pack = d.pack; S.kills = d.kills || 0;
     me.x = d.px; me.y = d.py; S.tower.hp = d.tower;
-    for (const [t, x, y, dir, hp] of d.builds) {
-      if (!BUILD[t]) continue;
-      const b = makeBuilding(t, x, y, dir); b.hp = hp;
+    for (const [t, x, y, dir, hp, fast] of d.builds) {
+      if (!BUILD[t] || BUILD[t].vehicle) continue;
+      const b = makeBuilding(t, x, y, dir); b.hp = hp; b.fast = !!fast;
       layer(t).set(key(x, y), b); S.list.push(b);
     }
+    for (const [x, y, gun] of d.cars || []) addCar(x, y, BUILD[gun] ? gun : '');
     for (let i = 0; i < d.rats; i++) addRat(rand(-2, 2), rand(1.5, 3));
     for (let i = 0; i < d.dogs; i++) addDog(me.x + rand(-1, 1), me.y + rand(-1, 1), 1);
     for (let i = 0; i < (d.chickens || 0); i++) addChicken(rand(-2, 2), rand(1.5, 3));
@@ -201,11 +210,16 @@
   function makeBuilding(type, x, y, dir) {
     const d = BUILD[type];
     return { type, x, y, dir: d.dir ? dir : 0, hp: d.hp, item: null, prog: 0, buf: 0, cd: d.every || 0, next: 0,
-             ang: -Math.PI / 2, firing: 0, hit: 0, dead: false };
+             ang: -Math.PI / 2, firing: 0, hit: 0, dead: false, fast: false, inp: 0, out: [] };
   }
   function whyNot(type, x, y) {
     const d = BUILD[type];
-    const g = S.builds.get(key(x, y));
+    const g = S.builds.get(key(x, y)), car = carAt(x, y);
+    if (d.turret && car) {   // a turret on a car
+      if (car.gun) return 'That car already has a turret.';
+      return afford(d.cost) ? null : `Not enough at the tower. ${d.name} costs ${costText(d.cost)}.`;
+    }
+    if (d.vehicle && car) return "There's already a car there.";
     if (type === 'over') {
       if (S.raised.has(key(x, y))) return 'There is already an over belt there.';
       if (g && g.type !== 'belt' && g.type !== 'splitter' && g.type !== 'wall') return 'Over belts can only go over belts, splitters and walls, or on empty ground.';
@@ -223,6 +237,9 @@
     if (why) { if (!quiet) say(why, true); return null; }
     const d = BUILD[type];
     pay(d.cost);
+    const car = d.turret && carAt(x, y);
+    if (car) { car.gun = type; car.cd = 0; fx({ k: 'poof', x: car.x, y: car.y, life: 0.3, r: 0.6, c: '255,255,255' }); return car; }
+    if (d.vehicle) { const c = addCar(x + 0.5, y + 0.5, ''); fx({ k: 'poof', x: c.x, y: c.y, life: 0.3, r: 0.6, c: '255,255,255' }); return c; }
     if (!d.on && nodeAt(x, y)) S.changed.set(key(x, y), null);     // building over a berry bush clears it
     const b = makeBuilding(type, x, y, dir);
     layer(type).set(key(x, y), b); S.list.push(b);
@@ -233,9 +250,21 @@
     layer(b.type).delete(key(b.x, b.y));
     const i = S.list.indexOf(b); if (i >= 0) S.list.splice(i, 1);
     b.dead = true;
-    if (giveBack) { refund(BUILD[b.type].cost); if (b.item) S.stock[b.item]++; }
+    if (giveBack) {
+      refund(BUILD[b.type].cost); if (b.item) S.stock[b.item]++;
+      if (b.fast) S.stock.kenalite++;
+      S.stock.rock += b.inp || 0; for (const g of b.out || []) S.stock[g]++;
+    }
   }
   function removeAt(x, y, quiet) {
+    const car = carAt(x, y);
+    if (car && !car.driver) {
+      S.cars.splice(S.cars.indexOf(car), 1);
+      refund(BUILD.car.cost); if (car.gun) refund(BUILD[car.gun].cost);
+      fx({ k: 'poof', x: car.x, y: car.y, life: 0.3, r: 0.6, c: '255,255,255' });
+      if (!quiet) say('Car removed. You got everything back.');
+      return;
+    }
     const b = topAt(x, y);
     if (!b) return;
     if (b.type === 'tower') { if (!quiet) say("You can't remove the tower!", true); return; }
@@ -261,7 +290,28 @@
       if (b.item || b.dir === (dir + 2) % 4) return false;    // full, or pointing back at us
       b.item = item; b.prog = 0; return true;
     }
+    if (b.type === 'furnace') {   // takes rocks from any side but its front
+      if (item !== 'rock' || b.inp >= 4 || dir === (b.dir + 2) % 4) return false;
+      b.inp++; return true;
+    }
     return false;
+  }
+
+  // ── Cars ─────────────────────────────────────────────────────────────────
+  function addCar(x, y, gun) { const c = { id: S.nid++, x, y, face: -1, driver: 0, gun, cd: 0, ang: -Math.PI / 2, firing: 0 }; S.cars.push(c); return c; }
+  const carAt = (x, y) => S.cars.find((c) => Math.floor(c.x) === x && Math.floor(c.y) === y);
+  function getOut(p) {
+    const c = S.cars.find((k) => k.id === p.car);
+    if (c) { c.driver = 0; c.x = p.x; c.y = p.y; }
+    p.car = 0;
+  }
+  function treatAt(x, y, quiet) {
+    const b = topAt(x, y);
+    if (!b || (b.type !== 'belt' && b.type !== 'over' && b.type !== 'splitter')) { if (!quiet) say('Tap a belt, over belt or splitter to speed it up with 🔶 kenalite.'); return; }
+    if (b.fast) { if (!quiet) say('That belt is already sped up.'); return; }
+    if (S.stock.kenalite < 1) { if (!quiet) say('You need 🔶 kenalite at the tower. Belt rocks into a 🏭 furnace to make some!', true); return; }
+    S.stock.kenalite--; b.fast = true;
+    fx({ k: 'poof', x: x + 0.5, y: y + 0.5, life: 0.4, r: 0.6, c: '255,160,60' });
   }
 
   function acceptOver(x, y, item, dir) {
@@ -364,6 +414,7 @@
     fx({ k: 'text', x: p.x, y: p.y - 0.7, life: 0.7, text: '-' + dmg, c: '#ff8a8a' });
     if (p.hp <= 0) {
       p.hp = 0; p.dead = 4;
+      if (p.car) getOut(p);
       for (const k in p.pack) p.pack[k] = 0;
       asPlayer(p, () => toast('💫 Ouch! You dropped your backpack. Back at the tower in a moment…'));
     }
@@ -393,6 +444,13 @@
 
     movePlayer(me, dt);
     for (const p of S.players) updatePlayer(p, dt);
+    for (const c of S.cars) {   // cars go where their driver goes, and car turrets shoot
+      if (c.driver) {
+        const p = S.players.find((q) => q.id === c.driver);
+        if (!p || p.car !== c.id) c.driver = 0; else { c.x = p.x; c.y = p.y; c.face = p.face; }
+      }
+      if (c.gun) updateTurret(c, BUILD[c.gun], dt, c.x, c.y);
+    }
     updateBuildings(dt);
     updateMonsters(dt);
     updateShots(dt);
@@ -413,7 +471,8 @@
     if (joy) { mx = joy.dx; my = joy.dy; }
     const l = Math.hypot(mx, my);
     if (l > 1) { mx /= l; my /= l; }
-    p.x += mx * 5 * dt; p.y += my * 5 * dt;
+    const sp = p.car ? 5 * CAR_SPEED : 5;
+    p.x += mx * sp * dt; p.y += my * sp * dt;
     if (mx) p.face = mx > 0 ? 1 : -1;
   }
   function updatePlayer(p, dt) {
@@ -445,17 +504,17 @@
       if (b.hit > 0) b.hit -= dt;
       if (b.type === 'belt') {
         if (b.item) {
-          b.prog = Math.min(1, b.prog + dt * BELT_SPEED);
+          b.prog = Math.min(1, b.prog + dt * BELT_SPEED * (b.fast ? FAST_BELT : 1));
           if (b.prog >= 1 && accept(b.x + DX[b.dir], b.y + DY[b.dir], b.item, b.dir)) b.item = null;
         }
       } else if (b.type === 'over') {
         if (b.item) {
-          b.prog = Math.min(1, b.prog + dt * BELT_SPEED);
+          b.prog = Math.min(1, b.prog + dt * BELT_SPEED * (b.fast ? FAST_BELT : 1));
           if (b.prog >= 1 && overNext(b.x + DX[b.dir], b.y + DY[b.dir], b.item, b.dir)) b.item = null;
         }
       } else if (b.type === 'splitter') {
         if (b.item) {
-          b.prog = Math.min(1, b.prog + dt * BELT_SPEED * 1.5);
+          b.prog = Math.min(1, b.prog + dt * BELT_SPEED * 1.5 * (b.fast ? FAST_BELT : 1));
           if (b.prog >= 1) {
             const outs = [(b.dir + 3) % 4, b.dir, (b.dir + 1) % 4];
             for (let k = 0; k < 3; k++) {
@@ -464,6 +523,12 @@
             }
           }
         }
+      } else if (b.type === 'furnace') {
+        if (b.inp > 0 && b.out.length < 4) {
+          b.prog += dt * rate / d.smelt;
+          if (b.prog >= 1) { b.prog = 0; b.inp--; b.out.push(Math.random() < 0.5 ? 'xenonite' : 'kenalite'); }
+        }
+        if (b.out.length && accept(b.x + DX[b.dir], b.y + DY[b.dir], b.out[0], b.dir)) b.out.shift();
       } else if (d.makes) {
         b.cd -= dt * rate;
         if (b.cd <= 0) { b.cd += d.every; if (b.buf < 4) b.buf++; }
@@ -474,9 +539,8 @@
     }
   }
 
-  function updateTurret(b, d, dt) {
+  function updateTurret(b, d, dt, cx = b.x + 0.5, cy = b.y + 0.5) {
     b.cd -= dt; if (b.firing > 0) b.firing -= dt;
-    const cx = b.x + 0.5, cy = b.y + 0.5;
     let tgt = null, bd = d.range;
     for (const m of S.monsters) { const e = Math.hypot(m.x - cx, m.y - cy); if (e < bd) { bd = e; tgt = m; } }
     if (!tgt) return;
@@ -669,6 +733,18 @@
       }
       return;
     }
+    // Get in or out of a car
+    if (p.car && Math.hypot(p.x - wx, p.y - wy) < 0.7) { getOut(p); say('You got out of the car.'); return; }
+    if (!p.car) {
+      let c = null; bd = 0.8;
+      for (const o of S.cars) { const e = Math.hypot(o.x - wx, o.y - wy); if (!o.driver && e < bd) { bd = e; c = o; } }
+      if (c) {
+        if (dist(c, p) > 2.4) { say('Walk closer to get in the car.'); return; }
+        p.car = c.id; c.driver = p.id; p.x = c.x; p.y = c.y;
+        say(`🚗 Vroom! ${c.gun ? 'Your car turret shoots monsters for you. ' : ''}Tap your car again to get out.`);
+        return;
+      }
+    }
     // Tame an animal
     let a = null; bd = 0.9;
     for (const o of S.animals) { const e = Math.hypot(o.x - wx, o.y - wy); if (e < bd) { bd = e; a = o; } }
@@ -682,6 +758,8 @@
   function describe(b) {
     if (b.type === 'tower') return `🏰 Centre tower: ${Math.ceil(b.hp)}/${b.max}. Everything you spend has to get here first.`;
     const d = BUILD[b.type];
+    if (b.type === 'furnace') return `🏭 Furnace: ${b.inp} 🪨 waiting, ${b.out.length || b.buf} gem${(b.out.length || b.buf) === 1 ? '' : 's'} ready. Gems come out of its ${ARROWS[b.dir]} side.`;
+    if (b.fast) return `${d.icon} ${d.name}, sped up with 🔶 kenalite: ${d.about}`;
     if (d.makes) return `${d.icon} ${d.name}: ${b.buf ? b.buf + ' waiting to go out. ' : ''}Points ${ARROWS[b.dir]}. Put a belt on that side heading to the tower.`;
     if (d.turret) return `${d.icon} ${d.name}: ${Math.ceil(b.hp)}/${d.hp} health. ${d.about}`;
     return `${d.icon} ${d.name}: ${d.about}`;
@@ -700,6 +778,7 @@
       else if (place(tool, tx, ty, dir, true)) pr.mine.add(key(tx, ty));
     } else if (tool === 'wall') place('wall', tx, ty, 0, true);
     else if (tool === 'remove') removeAt(tx, ty, true);
+    else if (tool === 'treat') treatAt(tx, ty, true);
     pr.lx = tx; pr.ly = ty;
   }
   function dragTo(p, tx, ty) {
@@ -721,6 +800,7 @@
     p.press = { tool: a.tool, tx, ty, lx: tx, ly: ty, mine: new Set(), hold: false };
     if (a.tool === 'hand') tapWorld(p, a.wx, a.wy);
     else if (a.tool === 'remove') removeAt(tx, ty);
+    else if (a.tool === 'treat') treatAt(tx, ty);
     else if (BUILD[a.tool] && place(a.tool, tx, ty, a.dir)) p.press.mine.add(key(tx, ty));
   }
   function actMove(p, wx, wy) {
@@ -728,7 +808,7 @@
     if (!pr || !S || S.over) return;
     const tx = Math.floor(wx), ty = Math.floor(wy);
     if (pr.tool === 'hand') { pr.tx = tx; pr.ty = ty; }
-    else if (pr.tool === 'belt' || pr.tool === 'over' || pr.tool === 'wall' || pr.tool === 'remove') dragTo(p, tx, ty);
+    else if (pr.tool === 'belt' || pr.tool === 'over' || pr.tool === 'wall' || pr.tool === 'remove' || pr.tool === 'treat') dragTo(p, tx, ty);
   }
   function actUp(p) { p.press = null; }
 
@@ -810,8 +890,8 @@
       ctx.fillStyle = '#8a94a3'; ctx.fillRect(-s / 2, -w / 2 - s * 0.06, s, w);
       ctx.fillStyle = '#4b5361'; ctx.fillRect(-s / 2, -w / 2 + s * 0.02 - s * 0.06, s, w - s * 0.04 * 2);
       ctx.fillStyle = '#c7cfda'; ctx.fillRect(-s / 2, -w / 2 - s * 0.06, s, s * 0.05); ctx.fillRect(-s / 2, w / 2 - s * 0.11, s, s * 0.05);
-      ctx.strokeStyle = 'rgba(140,220,255,.75)'; ctx.lineWidth = Math.max(1.5, s * 0.06); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      const off = (S.T * BELT_SPEED) % 1;
+      ctx.strokeStyle = b.fast ? 'rgba(255,146,43,.95)' : 'rgba(140,220,255,.75)'; ctx.lineWidth = Math.max(1.5, s * 0.06); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      const off = (S.T * BELT_SPEED * (b.fast ? FAST_BELT : 1)) % 1;
       ctx.beginPath();
       for (let k = 0; k < 2; k++) {
         const u = (((k * 0.5 + off) % 1) - 0.5) * s * 0.8;
@@ -822,8 +902,8 @@
       ctx.fillStyle = '#3d4249'; rrect(px + 1, py + 1, s - 2, s - 2, s * 0.12); ctx.fill();
       ctx.save(); ctx.translate(cx, cy); ctx.rotate(b.dir * Math.PI / 2);
       ctx.fillStyle = '#2a2e34'; ctx.fillRect(-s / 2 + 1, -s * 0.3, s - 2, s * 0.6);
-      ctx.strokeStyle = 'rgba(255,201,77,.6)'; ctx.lineWidth = Math.max(1.5, s * 0.06); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      const off = (S.T * BELT_SPEED) % 1;
+      ctx.strokeStyle = b.fast ? 'rgba(255,146,43,.95)' : 'rgba(255,201,77,.6)'; ctx.lineWidth = Math.max(1.5, s * 0.06); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      const off = (S.T * BELT_SPEED * (b.fast ? FAST_BELT : 1)) % 1;
       ctx.beginPath();
       for (let k = 0; k < 2; k++) {
         const u = (((k * 0.5 + off) % 1) - 0.5) * s * 0.8;
@@ -848,6 +928,20 @@
       for (let r = 0; r < 3; r++) { const o = r % 2 ? s / 4 : s * 0.6; ctx.moveTo(px + o, py + r * s / 3); ctx.lineTo(px + o, py + (r + 1) * s / 3); }
       ctx.stroke();
       ctx.strokeStyle = '#4a3523'; ctx.strokeRect(px + 0.5, py + 0.5, s - 1, s - 1);
+    } else if (b.type === 'furnace') {
+      ctx.fillStyle = '#7a4a35'; rrect(px + 2, py + 2, s - 4, s - 4, s * 0.16); ctx.fill();
+      ctx.strokeStyle = '#4e2e20'; ctx.lineWidth = 2; ctx.stroke();
+      const hot = b.inp > 0;
+      ctx.fillStyle = hot ? `rgba(255,${140 + Math.round(Math.sin(S.T * 9 + b.x) * 40)},40,.9)` : '#2b1a12';
+      rrect(px + s * 0.24, py + s * 0.5, s * 0.52, s * 0.3, s * 0.08); ctx.fill();
+      emoji('🏭', cx, cy - s * 0.12, s * 0.46);
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(b.dir * Math.PI / 2);
+      ctx.fillStyle = '#ffc94d'; ctx.beginPath(); ctx.moveTo(s * 0.5, 0); ctx.lineTo(s * 0.32, -s * 0.14); ctx.lineTo(s * 0.32, s * 0.14); ctx.fill();
+      ctx.restore();
+      const n = b.out.length || b.buf;
+      for (let i = 0; i < n; i++) { ctx.fillStyle = '#b197fc'; circle(px + s * 0.2 + i * s * 0.12, py + s * 0.9, s * 0.04); ctx.fill(); }
+    } else if (d.vehicle) {
+      emoji('🚗', cx, cy, s * 0.85);
     } else if (d.makes) {
       ctx.fillStyle = d.color; rrect(px + 2, py + 2, s - 4, s - 4, s * 0.18); ctx.fill();
       ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 2; ctx.stroke();
@@ -939,6 +1033,12 @@
     }
 
     for (const r of S.rats) drawThing('🐁', r.x, r.y, 0.5, r.face);
+    const carGun = (c, px, py) => {
+      if (!c.gun) return;
+      const g = BUILD[c.gun], k = s * 0.6, back = c.driver ? (c.face > 0 ? -1 : 1) * s * 0.36 : 0;   // at the back, so the driver doesn't hide it
+      drawBuilding({ type: c.gun, dir: 0, hp: g.hp, ang: c.ang, firing: c.firing, hit: 0 }, px + back - k / 2, py - s * 0.5, k);
+    };
+    for (const c of S.cars) if (!c.driver) drawThing('🚗', c.x, c.y, 0.95, c.face, (px, py) => carGun(c, px, py));
     for (const c of S.chickens) drawThing('🐓', c.x, c.y, 0.55, c.face);
     for (const a of S.animals) drawThing(WILD[a.kind].icon, a.x, a.y, WILD[a.kind].size, a.vx);
     for (const g of S.dogs) {
@@ -947,7 +1047,10 @@
     }
     for (const q of S.players) {
       if (q.dead > 0) continue;
-      drawThing(LOOKS[(q.id - 1) % LOOKS.length], q.x, q.y, 0.85, q.face, (px, py) => {
+      const car = q.car && S.cars.find((c) => c.id === q.car);
+      if (car) drawThing('🚗', q.x, q.y + 0.15, 1.05, q.face);
+      drawThing(LOOKS[(q.id - 1) % LOOKS.length], q.x, q.y - (car ? 0.3 : 0), car ? 0.6 : 0.85, q.face, (px, py) => {
+        if (car) carGun(car, sx(q.x), sy(q.y + 0.15));
         if (q.hp < 100) bar(px, py - s * 0.6, s * 0.7, q.hp / 100, '#6ee07a');
         if (S.players.length > 1) {   // name tags when friends are playing
           ctx.font = `600 ${Math.round(Math.max(11, s * 0.3))}px Fredoka, sans-serif`; ctx.textAlign = 'center';
@@ -1054,6 +1157,8 @@
     for (const q of S.players) if (q.dead <= 0) light(q.x, q.y, 4.5, 0.85);
     for (const o of S.owls) light(o.x, o.y, OWL_RANGE, 0.35);
     light(0, 0, 6.5, 0.9);
+    for (const c of S.cars) if (c.gun) light(c.x, c.y, 2.4, 0.6);
+    for (const b of S.list) if (b.type === 'furnace' && b.inp > 0) light(b.x + 0.5, b.y + 0.5, 1.8, 0.5);
     for (const b of S.list) if (BUILD[b.type].turret) light(b.x + 0.5, b.y + 0.5, b.type === 'tfire' ? 3.5 + Math.sin(S.T * 13 + b.x) * 0.2 : 2.2, 0.6);
     for (const sh of S.shots) if (sh.k !== 'arrow' || sh.bolt) light(sh.x, sh.y, 0.8, 0.5);
     for (const f of S.fx) if (f.k === 'boom' || f.k === 'flame') light(f.x, f.y, f.k === 'boom' ? 2.5 : 1, 0.5);
@@ -1080,6 +1185,7 @@
   }
   function toolInfo() {
     if (tool === 'hand') return '✋ Tap trees, rocks, metal and bushes next to you to gather (hold to keep going). Tap a 🐺 🐀 🐔 or 🦉 to tame it with berries. Tap monsters to hit them.';
+    if (tool === 'treat') return `✨ Speed up (1🔶 each): tap or drag over belts, over belts and splitters to make them ${FAST_BELT}× faster with kenalite. Make kenalite in a 🏭 furnace.`;
     if (tool === 'remove') return '🗑️ Tap a building to remove it. You get everything back. Drag to remove lots.';
     const d = BUILD[tool];
     return `${d.icon} ${d.name} (${costText(d.cost)}): ${d.about}${d.dir ? ` Facing ${ARROWS[toolDir]}, press R or ↻ to turn.` : ''}`;
@@ -1087,7 +1193,7 @@
   function buildToolbar() {
     toolsEl.innerHTML = '';
     for (const t of TOOLS) {
-      const d = t === 'hand' ? { icon: '✋', short: 'Hand' } : t === 'remove' ? { icon: '🗑️', short: 'Remove' } : BUILD[t];
+      const d = t === 'hand' ? { icon: '✋', short: 'Hand' } : t === 'remove' ? { icon: '🗑️', short: 'Remove' } : t === 'treat' ? { ...TREAT, name: 'Speed up' } : BUILD[t];
       const kk = Object.keys(TOOL_KEYS).find((k) => TOOL_KEYS[k] === t && k.length === 1);
       const btn = document.createElement('button');
       btn.type = 'button'; btn.className = 'tool'; btn.dataset.t = t;
@@ -1113,7 +1219,8 @@
   function refreshHud() {
     if (!S) return;
     const st = S.stock, pk = me.pack;
-    $('h-stock').innerHTML = `<span class="lbl">Tower</span>🪵${st.wood} 🪨${st.rock} 🔩${st.metal} 🫐${st.berry}`;
+    $('h-stock').innerHTML = `<span class="lbl">Tower</span>🪵${st.wood} 🪨${st.rock} 🔩${st.metal} 🫐${st.berry}` +
+      (st.xenonite || st.kenalite ? ` 💠${st.xenonite || 0} 🔶${st.kenalite || 0}` : '');
     const n = packCount(me);
     $('h-pack').innerHTML = `<span class="lbl">🎒</span>` + (n ? Object.entries(pk).filter(([, v]) => v).map(([k, v]) => ITEMS[k] + v).join(' ') + (n >= PACK_MAX ? ' FULL' : '') : 'empty');
     $('h-pack').classList.toggle('warn', n >= PACK_MAX);
@@ -1357,6 +1464,7 @@
     if (!p || !S) return;
     const j = S.players.indexOf(p); if (j < 0) return;
     S.players.splice(j, 1);
+    if (p.car) getOut(p);
     for (const e of S.dogs.concat(S.owls)) if (e.owner === p.id) e.owner = me.id;   // their pets stay and follow you
     toast(`👋 Player ${p.id} left.`);
     refreshNet();
@@ -1375,14 +1483,15 @@
     const o = {
       k: full ? 'init' : 'snap', T: S.T, clock: S.clock, night: S.night, phase: S.phase, stock: S.stock, kills: S.kills, over: S.over,
       q: S.queue.length, th: S.tower.hp, thit: S.tower.hit > 0 ? 1 : 0,
-      b: S.list.map((b) => [BK.indexOf(b.type), b.x, b.y, b.dir, Math.ceil(b.hp), b.item ? IK.indexOf(b.item) : -1, r2(b.prog), b.buf, r2(b.ang), b.firing > 0 ? 1 : 0, b.hit > 0 ? 1 : 0]),
+      b: S.list.map((b) => [BK.indexOf(b.type), b.x, b.y, b.dir, Math.ceil(b.hp), b.item ? IK.indexOf(b.item) : -1, r2(b.prog), b.out.length || b.buf, r2(b.ang), b.firing > 0 ? 1 : 0, b.hit > 0 ? 1 : 0, b.fast ? 1 : 0, b.inp]),
+      v: S.cars.map((c) => [c.id, r2(c.x), r2(c.y), c.face, c.driver, c.gun ? BK.indexOf(c.gun) : -1, r2(c.ang), c.firing > 0 ? 1 : 0]),
       m: S.monsters.map((m) => [m.id, MK.indexOf(m.kind), r2(m.x), r2(m.y), Math.ceil(m.hp), Math.ceil(m.max), m.face, m.burn > 0 ? 1 : 0]),
       a: S.animals.map((a) => [a.id, WK.indexOf(a.kind), r2(a.x), r2(a.y), a.vx > 0 ? 1 : -1]),
       d: S.dogs.map((g) => [g.id, r2(g.x), r2(g.y), Math.ceil(g.hp), Math.ceil(g.max), g.rest > 0 ? 1 : 0, g.face]),
       r: S.rats.map((e) => [e.id, r2(e.x), r2(e.y), e.face]),
       c: S.chickens.map((e) => [e.id, r2(e.x), r2(e.y), e.face]),
       o: S.owls.map((e) => [e.id, r2(e.x), r2(e.y), e.face]),
-      p: S.players.map((q) => [q.id, r2(q.x), r2(q.y), q.face, Math.ceil(q.hp), q.dead > 0 ? r2(q.dead) : 0, q.pack]),
+      p: S.players.map((q) => [q.id, r2(q.x), r2(q.y), q.face, Math.ceil(q.hp), q.dead > 0 ? r2(q.dead) : 0, q.pack, q.car || 0]),
       s: S.shots.map((h) => [h.k, r2(h.x), r2(h.y), h.bolt ? 1 : 0, r2(h.sx || 0), r2(h.sy || 0), r2(h.tx || 0), r2(h.ty || 0)]),
       f: full ? [] : S.fxOut || [],
     };
@@ -1440,7 +1549,7 @@
     S = {
       seed: o.seed, T: 0, phase: 'day', clock: 0, night: 0, warned: true, stock: { ...START }, nid: 0,
       changed: new TrackMap(o.changed), builds: new Map(), raised: new Map(), list: [], tower: null, players: [],
-      monsters: [], animals: [], dogs: [], rats: [], chickens: [], owls: [], shots: [], fx: [], queue: [], animalT: 0, kills: 0, over: false,
+      monsters: [], animals: [], dogs: [], rats: [], chickens: [], owls: [], cars: [], shots: [], fx: [], queue: [], animalT: 0, kills: 0, over: false,
     };
     makeTower(TOWER_HP);
     me = makePlayer(o.you); me.fresh = true; S.players = [me];
@@ -1468,10 +1577,10 @@
     S.tower.hp = o.th; S.tower.hit = o.thit ? 0.1 : 0;
     S.builds = new Map(); S.raised = new Map(); S.list = [];
     for (const [x, y] of [[-1, -1], [0, -1], [-1, 0], [0, 0]]) S.builds.set(key(x, y), S.tower);
-    for (const [ti, x, y, dir, hp, it, prog, buf, ang, firing, hit] of o.b) {
+    for (const [ti, x, y, dir, hp, it, prog, buf, ang, firing, hit, fast, inp] of o.b) {
       const t = BK[ti]; if (!t) continue;
       const b = makeBuilding(t, x, y, dir);
-      Object.assign(b, { hp, item: it >= 0 ? IK[it] : null, prog, buf, ang, firing: firing ? 0.1 : 0, hit: hit ? 0.1 : 0 });
+      Object.assign(b, { hp, item: it >= 0 ? IK[it] : null, prog, buf, ang, firing: firing ? 0.1 : 0, hit: hit ? 0.1 : 0, fast: !!fast, inp: inp || 0 });
       layer(t).set(key(x, y), b); S.list.push(b);
     }
     S.monsters = syncList(S.monsters, o.m, ([id, k, x, y, hp, max, face, burn]) => ({ id, kind: MK[k], x, y, hp, max, face, burn }));
@@ -1480,15 +1589,18 @@
     S.rats = syncList(S.rats, o.r, ([id, x, y, face]) => ({ id, x, y, face }));
     S.chickens = syncList(S.chickens, o.c, ([id, x, y, face]) => ({ id, x, y, face }));
     S.owls = syncList(S.owls, o.o, ([id, x, y, face]) => ({ id, x, y, face }));
+    S.cars = syncList(S.cars, o.v || [], ([id, x, y, face, driver, gi, ang, firing]) => ({ id, x, y, face, driver, gun: gi >= 0 ? BK[gi] : '', ang, firing: firing ? 0.1 : 0 }));
     const others = S.players.filter((q) => q !== me);
     const rows = o.p.filter((row) => row[0] !== me.id);
     const mine = o.p.find((row) => row[0] === me.id);
     if (mine) {
-      const [, x, y, , hp, dead, pack] = mine;
+      const [, x, y, , hp, dead, pack, car] = mine;
+      if (car && !me.car) { me.x = x; me.y = y; }   // just got in: jump to the car
+      me.car = car;
       if (me.fresh || dead > 0 || me.dead > 0) { me.x = x; me.y = y; me.fresh = false; }   // after you get knocked out, the host puts you back at the tower
       me.hp = hp; me.dead = dead; me.pack = pack;
     }
-    S.players = [me].concat(syncList(others, rows, ([id, x, y, face, hp, dead, pack]) => ({ id, x, y, face, hp, dead, pack })));
+    S.players = [me].concat(syncList(others, rows, ([id, x, y, face, hp, dead, pack, car]) => ({ id, x, y, face, hp, dead, pack, car })));
     S.shots = o.s.map(([k, x, y, bolt, sx, sy, tx, ty]) => ({ k, x, y, bolt: !!bolt, sx, sy, tx, ty }));
     for (const f of o.f || []) fx(f);
     for (const [k, v] of o.ch || []) S.changed.set(k, v);
@@ -1503,9 +1615,10 @@
     S.T += dt; S.clock += dt;
     movePlayer(me, dt);
     const k = Math.min(1, dt * 12);
-    for (const list of [S.monsters, S.animals, S.dogs, S.rats, S.chickens, S.owls, S.players])
+    for (const list of [S.monsters, S.animals, S.dogs, S.rats, S.chickens, S.owls, S.players, S.cars])
       for (const e of list) if (e !== me && e.tx !== undefined) { e.x += (e.tx - e.x) * k; e.y += (e.ty - e.y) * k; }
-    for (const b of S.list) if (b.item && b.type !== 'splitter') b.prog = Math.min(1, b.prog + dt * BELT_SPEED);
+    for (const b of S.list) if (b.item && b.type !== 'splitter') b.prog = Math.min(1, b.prog + dt * BELT_SPEED * (b.fast ? FAST_BELT : 1));
+    for (const c of S.cars) if (c.driver === me.id) { c.x = me.x; c.y = me.y; c.face = me.face; }
     for (const f of S.fx) { f.t = (f.t || 0) + dt; if (f.vx) { f.x += f.vx * dt; f.y += f.vy * dt; } }
     S.fx = S.fx.filter((f) => f.t < f.life);
     if ((posT += dt) > 0.066 && me.dead <= 0) { posT = 0; net.send({ k: 'pos', x: r2(me.x), y: r2(me.y), face: me.face }); }
