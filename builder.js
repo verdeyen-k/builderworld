@@ -105,6 +105,16 @@
 
   // ── The world ────────────────────────────────────────────────────────────
   let S = null;   // everything about the world being played
+  let me = null;  // the player on this screen
+  const LOOKS = ['🧑‍🔧', '👷', '🧑‍🚀', '🧑‍🌾', '🧑‍🍳', '🥷', '🧑‍🎨', '🧙'];
+  const PCOL = ['#ffc94d', '#4dabf7', '#ff6b6b', '#69db7c', '#da77f2', '#ff922b', '#3bc9db', '#f783ac'];
+  function makePlayer(id) {
+    return { id, x: rand(-0.8, 0.8), y: 2.6, hp: 100, dead: 0, calm: 9, cd: 0, face: -1, press: null,
+             pack: { wood: 0, rock: 0, metal: 0, berry: 0 } };
+  }
+  const playerById = (id) => S.players.find((q) => q.id === id) || S.players[0];
+  // A Map that remembers which keys changed, so a host can tell friends what changed in the world.
+  class TrackMap extends Map { set(k, v) { super.set(k, v); if (this.dirty) this.dirty.add(k); return this; } }
 
   function genNode(x, y) {
     if (x * x + y * y < 12) return null;                    // a clear space around the tower
@@ -130,12 +140,13 @@
   function newWorld() {
     S = {
       seed: (Math.random() * 1e9) | 0, T: 0, phase: 'day', clock: 0, night: 0, warned: false,
-      stock: { ...START }, pack: { wood: 0, rock: 0, metal: 0, berry: 0 },
-      changed: new Map(), builds: new Map(), raised: new Map(), list: [], tower: null,
-      player: { x: 0, y: 2.6, hp: 100, dead: 0, calm: 9, cd: 0, face: -1 },
+      stock: { ...START }, nid: 1,
+      changed: new TrackMap(), builds: new Map(), raised: new Map(), list: [], tower: null,
+      players: [makePlayer(1)],
       monsters: [], animals: [], dogs: [], rats: [], chickens: [], owls: [], shots: [], fx: [], queue: [],
       animalT: 0, kills: 0, over: false,
     };
+    me = S.players[0]; me.x = 0;
     makeTower(TOWER_HP);
     // A few things close by so the first minute isn't spent wandering.
     const near = [['tree', 4, 1], ['tree', 5, 2], ['tree', -4, 3], ['tree', -5, 2], ['rock', -3, -4], ['rock', 4, -3],
@@ -149,10 +160,10 @@
 
   // ── Saving ───────────────────────────────────────────────────────────────
   function save() {
-    if (!S || S.over || S.phase === 'night') return;      // a world saves during the day (and at dawn)
+    if (!S || S.over || S.phase === 'night' || net.role === 'guest') return;      // a world saves during the day (and at dawn)
     const data = {
-      v: 1, seed: S.seed, T: S.T, clock: S.clock, night: S.night, stock: S.stock, pack: S.pack, kills: S.kills,
-      px: S.player.x, py: S.player.y, tower: S.tower.hp, rats: S.rats.length, dogs: S.dogs.length,
+      v: 1, seed: S.seed, T: S.T, clock: S.clock, night: S.night, stock: S.stock, pack: S.players[0].pack, kills: S.kills,
+      px: S.players[0].x, py: S.players[0].y, tower: S.tower.hp, rats: S.rats.length, dogs: S.dogs.length,
       chickens: S.chickens.length, owls: S.owls.length,
       changed: [...S.changed], builds: S.list.map((b) => [b.type, b.x, b.y, b.dir, Math.ceil(b.hp)]),
     };
@@ -163,18 +174,18 @@
     try { d = JSON.parse(store.get(saveKey())); } catch (e) { return false; }
     if (!d || d.v !== 1) return false;
     newWorld();
-    S.changed = new Map(d.changed); S.seed = d.seed; S.T = d.T; S.clock = d.clock; S.night = d.night;
-    S.stock = d.stock; S.pack = d.pack; S.kills = d.kills || 0;
-    S.player.x = d.px; S.player.y = d.py; S.tower.hp = d.tower;
+    S.changed = new TrackMap(d.changed); S.seed = d.seed; S.T = d.T; S.clock = d.clock; S.night = d.night;
+    S.stock = d.stock; me.pack = d.pack; S.kills = d.kills || 0;
+    me.x = d.px; me.y = d.py; S.tower.hp = d.tower;
     for (const [t, x, y, dir, hp] of d.builds) {
       if (!BUILD[t]) continue;
       const b = makeBuilding(t, x, y, dir); b.hp = hp;
       layer(t).set(key(x, y), b); S.list.push(b);
     }
     for (let i = 0; i < d.rats; i++) addRat(rand(-2, 2), rand(1.5, 3));
-    for (let i = 0; i < d.dogs; i++) addDog(S.player.x + rand(-1, 1), S.player.y + rand(-1, 1));
+    for (let i = 0; i < d.dogs; i++) addDog(me.x + rand(-1, 1), me.y + rand(-1, 1), 1);
     for (let i = 0; i < (d.chickens || 0); i++) addChicken(rand(-2, 2), rand(1.5, 3));
-    for (let i = 0; i < (d.owls || 0); i++) addOwl(S.player.x + rand(-1, 1), S.player.y + rand(-1, 1));
+    for (let i = 0; i < (d.owls || 0); i++) addOwl(me.x + rand(-1, 1), me.y + rand(-1, 1), 1);
     return true;
   }
 
@@ -263,22 +274,23 @@
 
   // ── Animals ──────────────────────────────────────────────────────────────
   const dogPower = () => 1 + CHICK_BOOST * S.chickens.length;
-  function addDog(x, y) { const m = 80 * dogPower(); S.dogs.push({ x, y, hp: m, max: m, rest: 0, cd: 0, face: -1, slot: S.dogs.length }); }
-  function addRat(x, y) { S.rats.push({ x, y, tx: x, ty: y, t: 0, face: -1 }); }
-  function addChicken(x, y) { S.chickens.push({ x, y, tx: x, ty: y, t: 0, face: -1 }); }
-  function addOwl(x, y) { S.owls.push({ x, y, face: -1 }); }
-  function tame(a) {
-    const p = S.player, need = TAME[a.kind];
+  // Dogs and owls follow whoever tamed them (owner is a player id).
+  function addDog(x, y, owner) { const m = 80 * dogPower(); S.dogs.push({ id: S.nid++, owner, x, y, hp: m, max: m, rest: 0, cd: 0, face: -1 }); }
+  function addRat(x, y) { S.rats.push({ id: S.nid++, x, y, tx: x, ty: y, t: 0, face: -1 }); }
+  function addChicken(x, y) { S.chickens.push({ id: S.nid++, x, y, tx: x, ty: y, t: 0, face: -1 }); }
+  function addOwl(x, y, owner) { S.owls.push({ id: S.nid++, owner, x, y, face: -1 }); }
+  function tame(p, a) {
+    const need = TAME[a.kind];
     if (dist(p, a) > 2.6) { say('Walk closer to tame it.'); return; }
-    const have = S.pack.berry + S.stock.berry;
+    const have = p.pack.berry + S.stock.berry;
     if (have < need) { say(`You need ${need}🫐 to tame a ${a.kind}. You have ${have}. Gather berries from bushes!`, true); return; }
-    const fromPack = Math.min(S.pack.berry, need);
-    S.pack.berry -= fromPack; S.stock.berry -= need - fromPack;
+    const fromPack = Math.min(p.pack.berry, need);
+    p.pack.berry -= fromPack; S.stock.berry -= need - fromPack;
     S.animals.splice(S.animals.indexOf(a), 1);
     fx({ k: 'text', x: a.x, y: a.y - 0.6, life: 1.2, text: '❤️' });
-    if (a.kind === 'wolf') { addDog(a.x, a.y); toast('🐺 + 5🫐 = 🐕 A new dog! It will fight monsters with you.'); }
+    if (a.kind === 'wolf') { addDog(a.x, a.y, p.id); toast('🐺 + 5🫐 = 🐕 A new dog! It will fight monsters with you.'); }
     else if (a.kind === 'chicken') { addChicken(a.x, a.y); toast(`🐔 + 7🫐 = 🐓 Tamed chicken! Your dogs are now ${Math.round(S.chickens.length * CHICK_BOOST * 100)}% stronger.`); }
-    else if (a.kind === 'owl') { addOwl(a.x, a.y); toast('🦉 + 9🫐 = Tamed owl! It follows you and heals you and your dogs nearby.'); }
+    else if (a.kind === 'owl') { addOwl(a.x, a.y, p.id); toast('🦉 + 9🫐 = Tamed owl! It follows you and heals you and your dogs nearby.'); }
     else { addRat(a.x, a.y); toast(`🐀 + 2🫐 = 🐁 Tamed rat! Harvesters are now ${Math.round(S.rats.length * RAT_BOOST * 100)}% faster.`); }
   }
 
@@ -309,22 +321,22 @@
   }
   function spawnMonster(q) {
     const d = MON[q.kind], r = rand(22, 26), hp = d.hp * (1 + 0.15 * (S.night - 1));
-    S.monsters.push({ kind: q.kind, x: Math.cos(q.ang) * r, y: Math.sin(q.ang) * r, hp, max: hp, cd: rand(0, 0.5),
+    S.monsters.push({ id: S.nid++, kind: q.kind, x: Math.cos(q.ang) * r, y: Math.sin(q.ang) * r, hp, max: hp, cd: rand(0, 0.5),
                       re: 0, tgt: null, burn: 0, face: 1 });
   }
 
   // ── Who monsters go for ──────────────────────────────────────────────────
   function tpos(t) {
     if (!t) return null;
-    if (t.k === 'p') return S.player.dead > 0 ? null : S.player;
+    if (t.k === 'p') return t.ref.dead > 0 || !S.players.includes(t.ref) ? null : t.ref;
     if (t.k === 'd') return t.ref.rest > 0 || !S.dogs.includes(t.ref) ? null : t.ref;
     if (t.k === 'b') return t.ref.dead ? null : { x: t.ref.x + 0.5, y: t.ref.y + 0.5 };
     return { x: 0, y: 0 };   // the tower
   }
   function pickTarget(m) {
-    const d = MON[m.kind], p = S.player;
+    const d = MON[m.kind];
     let best = null, bd = d.ranged ? d.range : 5;
-    if (p.dead <= 0) { const e = dist(m, p); if (e < bd) { bd = e; best = { k: 'p' }; } }
+    for (const p of S.players) if (p.dead <= 0) { const e = dist(m, p); if (e < bd) { bd = e; best = { k: 'p', ref: p }; } }
     for (const g of S.dogs) if (g.rest <= 0) { const e = dist(m, g); if (e < bd) { bd = e; best = { k: 'd', ref: g }; } }
     if (best) return best;
     if (d.ranged) {   // archers shoot whatever building is closest
@@ -341,20 +353,19 @@
     return { k: 't' };
   }
   function hitTarget(t, dmg) {
-    if (t.k === 'p') hurtPlayer(dmg);
+    if (t.k === 'p') hurtPlayer(t.ref, dmg);
     else if (t.k === 'd') hurtDog(t.ref, dmg);
     else if (t.k === 'b') damageBuilding(t.ref, dmg);
     else damageBuilding(S.tower, dmg);
   }
-  function hurtPlayer(dmg) {
-    const p = S.player;
+  function hurtPlayer(p, dmg) {
     if (p.dead > 0) return;
     p.hp -= dmg; p.calm = 0;
     fx({ k: 'text', x: p.x, y: p.y - 0.7, life: 0.7, text: '-' + dmg, c: '#ff8a8a' });
     if (p.hp <= 0) {
       p.hp = 0; p.dead = 4;
-      for (const k in S.pack) S.pack[k] = 0;
-      toast('💫 Ouch! You dropped your backpack. Back at the tower in a moment…');
+      for (const k in p.pack) p.pack[k] = 0;
+      asPlayer(p, () => toast('💫 Ouch! You dropped your backpack. Back at the tower in a moment…'));
     }
   }
   function hurtDog(g, dmg) {
@@ -363,7 +374,7 @@
   }
 
   // ── Every frame: the world moves ─────────────────────────────────────────
-  let tool = 'hand', toolDir = 0, press = null, joy = null, isTouch = false, hover = null, paused = false;
+  let tool = 'hand', toolDir = 0, ptr = null, joy = null, isTouch = false, hover = null, paused = false;
   const keys = new Set();
 
   function update(dt) {
@@ -380,7 +391,8 @@
     }
     if (S.over) return;
 
-    updatePlayer(dt);
+    movePlayer(me, dt);
+    for (const p of S.players) updatePlayer(p, dt);
     updateBuildings(dt);
     updateMonsters(dt);
     updateShots(dt);
@@ -390,13 +402,9 @@
     if (S.tower.hit > 0) S.tower.hit -= dt;
   }
 
-  function updatePlayer(dt) {
-    const p = S.player;
-    if (p.dead > 0) {
-      p.dead -= dt;
-      if (p.dead <= 0) { p.x = 0; p.y = 2.6; p.hp = 100; p.calm = 9; }
-      return;
-    }
+  // Walking, for the player on this screen. (Friends walk on their own screens and send where they are.)
+  function movePlayer(p, dt) {
+    if (p.dead > 0) return;
     let mx = 0, my = 0;
     if (keys.has('a') || keys.has('arrowleft')) mx--;
     if (keys.has('d') || keys.has('arrowright')) mx++;
@@ -407,17 +415,24 @@
     if (l > 1) { mx /= l; my /= l; }
     p.x += mx * 5 * dt; p.y += my * 5 * dt;
     if (mx) p.face = mx > 0 ? 1 : -1;
+  }
+  function updatePlayer(p, dt) {
+    if (p.dead > 0) {
+      p.dead -= dt;
+      if (p.dead <= 0) { p.x = rand(-0.8, 0.8); p.y = 2.6; p.hp = 100; p.calm = 9; p.respawned = true; }
+      return;
+    }
     p.cd -= dt; p.calm += dt;
     if (p.calm > 3) p.hp = Math.min(100, p.hp + 5 * dt);
 
     // Holding down on something keeps gathering it.
-    if (press && press.hold && tool === 'hand') gather(press.tx, press.ty, true);
+    if (p.press && p.press.hold && p.press.tool === 'hand') gather(p, p.press.tx, p.press.ty, true);
 
     // Walking up to the tower unloads your backpack.
     if (Math.hypot(p.x, p.y) < 3) {
-      const got = Object.entries(S.pack).filter(([, v]) => v > 0);
+      const got = Object.entries(p.pack).filter(([, v]) => v > 0);
       if (got.length) {
-        for (const [k, v] of got) { S.stock[k] += v; S.pack[k] = 0; }
+        for (const [k, v] of got) { S.stock[k] += v; p.pack[k] = 0; }
         fx({ k: 'text', x: 0, y: -1.6, life: 1.3, text: got.map(([k, v]) => `+${v}${ITEMS[k]}`).join(' ') });
       }
     }
@@ -556,18 +571,19 @@
   }
 
   function updateAnimals(dt) {
-    const p = S.player;
-    // Wild animals wander about the world near you.
+    const near = (a, r) => S.players.some((q) => dist(a, q) < r);
+    // Wild animals wander about the world near the players.
     if ((S.animalT -= dt) <= 0) {
-      S.animalT = 2.5;
-      S.animals = S.animals.filter((a) => dist(a, p) < 40);
+      S.animalT = 2.5 / S.players.length;
+      const p = S.players[(Math.random() * S.players.length) | 0];
+      S.animals = S.animals.filter((a) => near(a, 40));
       if (S.animals.filter((a) => dist(a, p) < 25).length < 8) {
         const ang = Math.random() * Math.PI * 2, r = rand(10, 22);
         const x = p.x + Math.cos(ang) * r, y = p.y + Math.sin(ang) * r;
         if (Math.hypot(x, y) > 7 && !solidAt(Math.floor(x), Math.floor(y)))
         {
           const r2 = Math.random(), kind = r2 < 0.32 ? 'wolf' : r2 < 0.72 ? 'rat' : r2 < 0.9 ? 'chicken' : 'owl';
-          S.animals.push({ kind, x, y, vx: 0, vy: 0, t: 0 });
+          S.animals.push({ id: S.nid++, kind, x, y, vx: 0, vy: 0, t: 0 });
         }
       }
     }
@@ -587,17 +603,17 @@
     }
     // Owls fly along with you and heal you and your dogs close by.
     S.owls.forEach((o, i) => {
-      const a = S.T * 0.8 + i * 2.4, tx = p.x + Math.cos(a) * 1.3, ty = p.y - 0.9 + Math.sin(a) * 0.5;
+      const p = playerById(o.owner), a = S.T * 0.8 + i * 2.4, tx = p.x + Math.cos(a) * 1.3, ty = p.y - 0.9 + Math.sin(a) * 0.5;
       const dx = tx - o.x, dy = ty - o.y, e = Math.hypot(dx, dy);
       if (e > 16) { o.x = tx; o.y = ty; }
       else if (e > 0.05) { const st = Math.min(e, Math.max(3, e * 2) * dt); o.x += dx / e * st; o.y += dy / e * st; o.face = dx > 0 ? 1 : -1; }
-      if (p.dead <= 0 && dist(o, p) < OWL_RANGE) p.hp = Math.min(100, p.hp + OWL_HEAL * dt);
+      for (const q of S.players) if (q.dead <= 0 && dist(o, q) < OWL_RANGE) q.hp = Math.min(100, q.hp + OWL_HEAL * dt);
       for (const g of S.dogs) if (g.rest <= 0 && dist(o, g) < OWL_RANGE) g.hp = Math.min(g.max, g.hp + OWL_HEAL * dt);
     });
     // Dogs follow you, and fight any monster that comes close. Chickens make them stronger.
     const power = dogPower();
     S.dogs.forEach((g, i) => {
-      const max = 80 * power;
+      const p = playerById(g.owner), max = 80 * power;
       if (g.max !== max) { g.hp *= max / g.max; g.max = max; }
       if (g.rest > 0) { g.rest -= dt; if (g.rest <= 0) { g.hp = g.max; g.x = rand(-1, 1); g.y = 1.8; } return; }
       g.cd -= dt;
@@ -620,27 +636,26 @@
   }
 
   // ── What a tap does ──────────────────────────────────────────────────────
-  function gather(tx, ty, quiet) {
-    const p = S.player;
+  function gather(p, tx, ty, quiet) {
     if (p.dead > 0) return false;
     const n = nodeAt(tx, ty);
     if (!n || S.builds.has(key(tx, ty))) return false;
     if (Math.hypot(tx + 0.5 - p.x, ty + 0.5 - p.y) > 2.4) { if (!quiet) say(`Walk closer to gather that ${NODES[n.type].name}.`); return true; }
     if (p.cd > 0) return true;
     if (n.amt <= 0) { if (!quiet) say('No berries right now. They grow back.'); return true; }
-    if (packCount() >= PACK_MAX) { if (!quiet) say('🎒 Backpack full! Walk to the tower to unload it.', true); return true; }
+    if (packCount(p) >= PACK_MAX) { if (!quiet) say('🎒 Backpack full! Walk to the tower to unload it.', true); return true; }
     p.cd = 0.3;
     const item = NODES[n.type].gives;
-    S.pack[item]++; n.amt--;
+    p.pack[item]++; n.amt--;
     fx({ k: 'text', x: tx + 0.5, y: ty, life: 0.8, text: '+1' + ITEMS[item] });
     if (n.amt <= 0 && n.type !== 'berry') S.changed.set(key(tx, ty), null);
     else { if (n.amt <= 0) n.regrowAt = S.T + NODES.berry.regrow; S.changed.set(key(tx, ty), n); }
     return true;
   }
-  const packCount = () => Object.values(S.pack).reduce((a, b) => a + b, 0);
+  const packCount = (p) => Object.values(p.pack).reduce((a, b) => a + b, 0);
 
-  function tapWorld(wx, wy) {
-    const tx = Math.floor(wx), ty = Math.floor(wy), p = S.player;
+  function tapWorld(p, wx, wy) {
+    const tx = Math.floor(wx), ty = Math.floor(wy);
     if (p.dead > 0) return;
     // Hit a monster
     let m = null, bd = 0.9;
@@ -657,9 +672,9 @@
     // Tame an animal
     let a = null; bd = 0.9;
     for (const o of S.animals) { const e = Math.hypot(o.x - wx, o.y - wy); if (e < bd) { bd = e; a = o; } }
-    if (a) { tame(a); return; }
+    if (a) { tame(p, a); return; }
     // Gather
-    if (gather(tx, ty, false)) { if (press) press.hold = true; return; }
+    if (gather(p, tx, ty, false)) { if (p.press) p.press.hold = true; return; }
     // Look at a building
     const b = topAt(tx, ty);
     if (b) say(describe(b));
@@ -673,11 +688,11 @@
   }
 
   // Dragging with a belt, wall or remove lays a whole line.
-  function stepDrag(tx, ty) {
-    const pr = press, dx = tx - pr.lx, dy = ty - pr.ly;
+  function stepDrag(p, tx, ty) {
+    const pr = p.press, tool = pr.tool, dx = tx - pr.lx, dy = ty - pr.ly;
     if (tool === 'belt' || tool === 'over') {
       const dir = dx === 1 ? 0 : dy === 1 ? 1 : dx === -1 ? 2 : 3, L = layer(tool);
-      toolDir = dir;
+      if (p === me) toolDir = dir;
       const prev = L.get(key(pr.lx, pr.ly));
       if (prev && prev.type === tool && pr.mine.has(key(pr.lx, pr.ly))) prev.dir = dir;
       const here = L.get(key(tx, ty));
@@ -687,14 +702,35 @@
     else if (tool === 'remove') removeAt(tx, ty, true);
     pr.lx = tx; pr.ly = ty;
   }
-  function dragTo(tx, ty) {
+  function dragTo(p, tx, ty) {
     // walk one tile at a time so fast drags don't leave gaps
+    const pr = p.press;
     let guard = 60;
-    while ((press.lx !== tx || press.ly !== ty) && guard--) {
-      if (press.lx !== tx) stepDrag(press.lx + Math.sign(tx - press.lx), press.ly);
-      else stepDrag(press.lx, press.ly + Math.sign(ty - press.ly));
+    while ((pr.lx !== tx || pr.ly !== ty) && guard--) {
+      if (pr.lx !== tx) stepDrag(p, pr.lx + Math.sign(tx - pr.lx), pr.ly);
+      else stepDrag(p, pr.lx, pr.ly + Math.sign(ty - pr.ly));
     }
   }
+
+  // What a player does with their finger or mouse. On a friend's screen these get sent to the host,
+  // and the host runs them, so everybody's world stays the same.
+  function actDown(p, a) {
+    if (!S || S.over || p.dead > 0 && a.tool === 'hand') return;
+    const tx = Math.floor(a.wx), ty = Math.floor(a.wy);
+    if (a.btn === 2) { removeAt(tx, ty); return; }
+    p.press = { tool: a.tool, tx, ty, lx: tx, ly: ty, mine: new Set(), hold: false };
+    if (a.tool === 'hand') tapWorld(p, a.wx, a.wy);
+    else if (a.tool === 'remove') removeAt(tx, ty);
+    else if (BUILD[a.tool] && place(a.tool, tx, ty, a.dir)) p.press.mine.add(key(tx, ty));
+  }
+  function actMove(p, wx, wy) {
+    const pr = p.press;
+    if (!pr || !S || S.over) return;
+    const tx = Math.floor(wx), ty = Math.floor(wy);
+    if (pr.tool === 'hand') { pr.tx = tx; pr.ty = ty; }
+    else if (pr.tool === 'belt' || pr.tool === 'over' || pr.tool === 'wall' || pr.tool === 'remove') dragTo(p, tx, ty);
+  }
+  function actUp(p) { p.press = null; }
 
   // ── Drawing ──────────────────────────────────────────────────────────────
   const cv = $('cv'), ctx = cv.getContext('2d');
@@ -859,7 +895,7 @@
   }
 
   function render() {
-    const p = S.player;
+    const p = me;
     camX = p.dead > 0 ? camX + (0 - camX) * 0.05 : p.x;
     camY = p.dead > 0 ? camY + (2.6 - camY) * 0.05 : p.y;
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -909,8 +945,19 @@
       if (g.rest > 0) continue;
       drawThing('🐕', g.x, g.y, 0.75, g.face, (px, py) => { if (g.hp < g.max) bar(px, py - s * 0.5, s * 0.6, g.hp / g.max, '#6ee07a'); });
     }
+    for (const q of S.players) {
+      if (q.dead > 0) continue;
+      drawThing(LOOKS[(q.id - 1) % LOOKS.length], q.x, q.y, 0.85, q.face, (px, py) => {
+        if (q.hp < 100) bar(px, py - s * 0.6, s * 0.7, q.hp / 100, '#6ee07a');
+        if (S.players.length > 1) {   // name tags when friends are playing
+          ctx.font = `600 ${Math.round(Math.max(11, s * 0.3))}px Fredoka, sans-serif`; ctx.textAlign = 'center';
+          ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.fillStyle = PCOL[(q.id - 1) % PCOL.length];
+          const nm = q === me ? 'You' : 'Player ' + q.id;
+          ctx.strokeText(nm, px, py - s * 0.68); ctx.fillText(nm, px, py - s * 0.68);
+        }
+      });
+    }
     if (p.dead <= 0) {
-      drawThing('🧑‍🔧', p.x, p.y, 0.85, p.face, (px, py) => { if (p.hp < 100) bar(px, py - s * 0.6, s * 0.7, p.hp / 100, '#6ee07a'); });
       if (tool === 'hand') { ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 1; ctx.setLineDash([4, 6]); circle(sx(p.x), sy(p.y), 2.4 * s); ctx.stroke(); ctx.setLineDash([]); }
     }
 
@@ -954,7 +1001,7 @@
     }
 
     // what you're about to build
-    if (hover && BUILD[tool] && !press) {
+    if (hover && BUILD[tool] && !ptr) {
       const d = BUILD[tool], hx = hover.tx, hy = hover.ty, bad = whyNot(tool, hx, hy);
       ctx.globalAlpha = 0.55;
       drawBuilding(makeBuilding(tool, hx, hy, toolDir), sx(hx), sy(hy), s);
@@ -1004,7 +1051,7 @@
       g.addColorStop(0, `rgba(0,0,0,${a})`); g.addColorStop(1, 'rgba(0,0,0,0)');
       lctx.fillStyle = g; lctx.fillRect(x - R, y - R, R * 2, R * 2);
     };
-    if (S.player.dead <= 0) light(S.player.x, S.player.y, 4.5, 0.85);
+    for (const q of S.players) if (q.dead <= 0) light(q.x, q.y, 4.5, 0.85);
     for (const o of S.owls) light(o.x, o.y, OWL_RANGE, 0.35);
     light(0, 0, 6.5, 0.9);
     for (const b of S.list) if (BUILD[b.type].turret) light(b.x + 0.5, b.y + 0.5, b.type === 'tfire' ? 3.5 + Math.sin(S.T * 13 + b.x) * 0.2 : 2.2, 0.6);
@@ -1018,8 +1065,16 @@
   // ── The bars on screen ───────────────────────────────────────────────────
   const toolsEl = $('tools'), infoEl = $('info'), toastEl = $('toast');
   let sayUntil = 0, toastTimer = 0;
-  function say(msg, bad) { infoEl.textContent = msg; infoEl.classList.toggle('bad', !!bad); sayUntil = performance.now() + 3000; }
+  // Messages go to whoever did the thing: when the host runs a friend's tap, the friend sees the message.
+  let route = null;
+  function asPlayer(p, fn) { const old = route; route = p; try { fn(); } finally { route = old; } }
+  const sendTo = (p, o) => { if (p.conn && p.conn.open) p.conn.send(JSON.stringify(o)); };
+  function say(msg, bad) {
+    if (route && route !== me) { sendTo(route, { k: 'say', msg, bad: !!bad }); return; }
+    infoEl.textContent = msg; infoEl.classList.toggle('bad', !!bad); sayUntil = performance.now() + 3000; }
   function toast(msg) {
+    if (route && route !== me) { sendTo(route, { k: 'toast', msg }); return; }
+    if (!route && net.role === 'host') net.broadcast({ k: 'toast', msg });
     toastEl.textContent = msg; toastEl.style.opacity = 1;
     clearTimeout(toastTimer); toastTimer = setTimeout(() => { toastEl.style.opacity = 0; }, 4000);
   }
@@ -1057,18 +1112,21 @@
 
   function refreshHud() {
     if (!S) return;
-    const st = S.stock, pk = S.pack;
+    const st = S.stock, pk = me.pack;
     $('h-stock').innerHTML = `<span class="lbl">Tower</span>🪵${st.wood} 🪨${st.rock} 🔩${st.metal} 🫐${st.berry}`;
-    const n = packCount();
+    const n = packCount(me);
     $('h-pack').innerHTML = `<span class="lbl">🎒</span>` + (n ? Object.entries(pk).filter(([, v]) => v).map(([k, v]) => ITEMS[k] + v).join(' ') + (n >= PACK_MAX ? ' FULL' : '') : 'empty');
     $('h-pack').classList.toggle('warn', n >= PACK_MAX);
     const tm = $('h-time');
     if (S.phase === 'day') { tm.textContent = `☀️ Day ${S.night + 1} · 🌙 in ${fmt(dayLen() - S.clock)}`; tm.className = 'pill' + (dayLen() - S.clock < 20 ? ' warn' : ''); }
     else { tm.textContent = `🌙 Night ${S.night} · ☀️ in ${fmt(NIGHT_LEN - S.clock)} · ${S.monsters.length + S.queue.length} 👹`; tm.className = 'pill night'; }
     const lf = $('h-life');
-    lf.textContent = `🏰${Math.ceil(S.tower.hp)} ❤️${Math.ceil(S.player.hp)}`;
+    lf.textContent = `🏰${Math.ceil(S.tower.hp)} ❤️${Math.ceil(me.hp)}`;
     lf.classList.toggle('warn', S.tower.hp < S.tower.max * 0.35);
     const pct = (n, b) => (n ? ` (+${Math.round(n * b * 100)}%)` : '');
+    const hn = $('h-net');
+    hn.hidden = !net.role || !net.code && net.role === 'host';
+    if (!hn.hidden) hn.textContent = net.role === 'host' ? `🌐 ${net.code} · ${S.players.length} 🧑` : `🌐 Player ${me.id} · ${S.players.length} 🧑`;
     $('h-pets').textContent = `🐁${S.rats.length}${pct(S.rats.length, RAT_BOOST)} 🐕${S.dogs.length} 🐓${S.chickens.length}${pct(S.chickens.length, CHICK_BOOST)} 🦉${S.owls.length}`;
     for (const b of toolsEl.querySelectorAll('.tool[data-t]')) { const d = BUILD[b.dataset.t]; b.classList.toggle('poor', !!d && !afford(d.cost)); }
     const rd = $('rot-dir'); if (rd) rd.textContent = ARROWS[toolDir];
@@ -1091,27 +1149,28 @@
     try { cv.setPointerCapture(e.pointerId); } catch (err) { /* fine */ }
     const j = joyCenter();
     if (isTouch && Math.hypot(e.clientX - j.x, e.clientY - j.y) < 75) { joy = { id: e.pointerId, dx: 0, dy: 0 }; updateJoy(e); return; }
-    if (press) return;
+    if (ptr) return;
     const w = toWorld(e.clientX, e.clientY), tx = Math.floor(w.x), ty = Math.floor(w.y);
     if (e.pointerType === 'mouse') hover = { tx, ty };
-    if (e.button === 2) { removeAt(tx, ty); return; }
-    press = { id: e.pointerId, tx, ty, lx: tx, ly: ty, mine: new Set(), hold: false };
-    if (tool === 'hand') tapWorld(w.x, w.y);
-    else if (tool === 'remove') removeAt(tx, ty);
-    else if (place(tool, tx, ty, toolDir)) press.mine.add(key(tx, ty));
+    const a = { tool, dir: toolDir, wx: w.x, wy: w.y, btn: e.button };
+    if (e.button !== 2) ptr = { id: e.pointerId, lx: tx, ly: ty };
+    if (net.role === 'guest') net.send({ k: 'down', ...a }); else actDown(me, a);
   });
   cv.addEventListener('pointermove', (e) => {
     if (!S) return;
     if (joy && e.pointerId === joy.id) { updateJoy(e); return; }
     const w = toWorld(e.clientX, e.clientY), tx = Math.floor(w.x), ty = Math.floor(w.y);
     if (e.pointerType === 'mouse') hover = { tx, ty };
-    if (!press || e.pointerId !== press.id || !playing()) return;
-    if (tool === 'hand') { press.tx = tx; press.ty = ty; }
-    else if (tool === 'belt' || tool === 'over' || tool === 'wall' || tool === 'remove') dragTo(tx, ty);
+    if (!ptr || e.pointerId !== ptr.id || !playing()) return;
+    if (tx === ptr.lx && ty === ptr.ly) return;
+    if ((tool === 'belt' || tool === 'over') && Math.abs(tx - ptr.lx) + Math.abs(ty - ptr.ly) >= 1)   // the arrow follows your drag
+      toolDir = tx > ptr.lx ? 0 : tx < ptr.lx ? 2 : ty > ptr.ly ? 1 : 3;
+    ptr.lx = tx; ptr.ly = ty;
+    if (net.role === 'guest') net.send({ k: 'move', wx: w.x, wy: w.y }); else actMove(me, w.x, w.y);
   });
   const endPress = (e) => {
     if (joy && e.pointerId === joy.id) joy = null;
-    if (press && e.pointerId === press.id) press = null;
+    if (ptr && e.pointerId === ptr.id) { ptr = null; if (net.role === 'guest') net.send({ k: 'up' }); else if (me) actUp(me); }
   };
   cv.addEventListener('pointerup', endPress);
   cv.addEventListener('pointercancel', endPress);
@@ -1135,13 +1194,13 @@
     else if (k === '-') { zoom = Math.max(0.55, zoom * 0.9); TS = baseTS * zoom; }
   });
   window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
-  window.addEventListener('blur', () => { keys.clear(); press = null; joy = null; });
+  window.addEventListener('blur', () => { keys.clear(); joy = null; if (ptr) endPress({ pointerId: ptr.id }); });
   window.addEventListener('resize', resize);
   window.addEventListener('pagehide', save);
   document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
 
   // ── Screens ──────────────────────────────────────────────────────────────
-  function fx(f) { if (S.fx.length < 400) { f.t = 0; S.fx.push(f); } }
+  function fx(f) { if (S.fx.length < 400) { f.t = 0; S.fx.push(f); if (net.role === 'host' && S.fxOut) S.fxOut.push(f); } }
   function show(id) { for (const s of ['start', 'game', 'paused', 'over']) $(s).hidden = s !== id && !(s === 'game' && (id === 'paused' || id === 'over')); }
 
   function startScreen() {
@@ -1153,14 +1212,14 @@
   }
   function begin(fresh) {
     if (fresh || !load()) newWorld();
-    keys.clear(); press = null; joy = null; paused = false;
-    camX = S.player.x; camY = S.player.y;
+    keys.clear(); ptr = null; joy = null; paused = false;
+    camX = me.x; camY = me.y;
     show('game');
     $('menu-btn').style.borderColor = SLOTS.find((x) => x.id === slot).c;
     resize(); setTool('hand');
     toast(S.night === 0 && S.T < 1 ? '☀️ Gather stuff and bring it to the 🏰 tower. Night comes in a few minutes!' : `☀️ Welcome back! Day ${S.night + 1}.`);
   }
-  function pause() { if (!playing()) return; paused = true; save(); show('paused'); }
+  function pause() { if (!playing()) return; paused = true; save(); refreshNet(); show('paused'); }
   function resume() { paused = false; show('game'); last = performance.now(); }
   function gameOver() {
     if (S.over) return;
@@ -1204,31 +1263,273 @@
   }
   $('menu-btn').addEventListener('click', pause);
   $('resume').addEventListener('click', resume);
-  $('to-menu').addEventListener('click', () => { save(); startScreen(); });
-  $('again').addEventListener('click', () => begin(true));
-  $('over-menu').addEventListener('click', startScreen);
+  $('to-menu').addEventListener('click', () => { save(); leaveNet(); startScreen(); });
+  $('again').addEventListener('click', () => { const g = net.role === 'guest'; leaveNet(); if (g) startScreen(); else begin(true); });
+  $('over-menu').addEventListener('click', () => { leaveNet(); startScreen(); });
+  $('invite').addEventListener('click', hostWorld);
+  $('join').addEventListener('click', () => joinWorld($('join-code').value));
+  $('join-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinWorld($('join-code').value); });
 
   // Fill in the tables on the start screen from the rules above.
   $('chart-build').innerHTML = Object.values(BUILD).map((d) => `<b>${d.icon} ${d.name} · ${costText(d.cost)}</b><span>${d.about}</span>`).join('');
   $('chart-mon').innerHTML = Object.values(MON).map((d) => `<b>${d.icon} ${d.name}</b><span>${d.about[0].toUpperCase() + d.about.slice(1)}.</span>`).join('');
 
+  // ── Playing together ─────────────────────────────────────────────────────
+  // One player hosts: their browser runs the world and sends it to everyone about 15 times a second.
+  // Friends send what they do (where they walk, what they tap) and the host does it for them.
+  // Browsers talk to each other directly, using PeerJS to find each other by the join code.
+  const PEER_PREFIX = 'verdeyen-builderworld-';
+  const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const BK = Object.keys(BUILD), IK = Object.keys(ITEMS), MK = Object.keys(MON), WK = Object.keys(WILD);
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const net = {
+    role: null, peer: null, conns: [], conn: null, code: '', joined: false,
+    send(o) { if (this.conn && this.conn.open) this.conn.send(JSON.stringify(o)); },
+    broadcast(o) { const t = JSON.stringify(o); for (const c of this.conns) if (c.open) c.send(t); },
+  };
+  let peerLib = null;
+  function loadPeer() {
+    if (window.Peer) return Promise.resolve();
+    if (!peerLib) peerLib = new Promise((ok, bad) => {
+      const el = document.createElement('script');
+      el.src = 'https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js';
+      el.onload = ok; el.onerror = () => { peerLib = null; bad(new Error('load')); };
+      document.head.appendChild(el);
+    });
+    return peerLib;
+  }
+  function leaveNet() {
+    if (net.peer) { try { net.peer.destroy(); } catch (e) { /* gone */ } }
+    Object.assign(net, { role: null, peer: null, conns: [], conn: null, code: '', joined: false });
+    if (S) { if (S.changed) S.changed.dirty = null; S.fxOut = null; }
+  }
+  function refreshNet() {
+    const host = net.role === 'host', guest = net.role === 'guest';
+    $('invite').hidden = !!net.role;
+    $('to-menu').textContent = guest ? 'Leave this world' : host ? 'Menu (stops hosting, your world is saved)' : 'Menu (your world is saved)';
+    $('net-info').innerHTML = host ? (net.code ? `Friends can join with the code<br><b class="code">${net.code}</b><br>${S.players.length - 1} friend${S.players.length === 2 ? '' : 's'} here. The world keeps going while this menu is open.` : 'Starting…')
+      : guest ? `You're playing in a friend's world. It saves on their computer.` : '';
+  }
+
+  // ── Hosting
+  async function hostWorld() {
+    if (net.role || !S) return;
+    net.role = 'host'; refreshNet();
+    try { await loadPeer(); } catch (e) { leaveNet(); $('net-info').textContent = "Couldn't load the online part. Are you connected to the internet?"; return; }
+    const tryCode = (left) => {
+      let code = '';
+      for (let i = 0; i < 5; i++) code += CODE_CHARS[(Math.random() * CODE_CHARS.length) | 0];
+      const peer = new Peer(PEER_PREFIX + code);
+      net.peer = peer;
+      peer.on('open', () => {
+        net.code = code; S.changed.dirty = new Set(); S.fxOut = [];
+        refreshNet(); refreshHud();
+        toast(`🌐 Your world is open! Friends join with the code ${code}.`);
+      });
+      peer.on('connection', (conn) => {
+        conn.on('open', () => {
+          if (net.role !== 'host') return;
+          if (S.players.length >= 8) { conn.send(JSON.stringify({ k: 'full' })); setTimeout(() => conn.close(), 400); return; }
+          const id = Math.max(...S.players.map((q) => q.id)) + 1, p = makePlayer(id);
+          p.conn = conn; conn.p = p; S.players.push(p); net.conns.push(conn);
+          conn.send(JSON.stringify({ ...snapshot(true), you: id }));
+          toast(`👋 Player ${id} joined your world!`);
+          refreshNet();
+        });
+        conn.on('data', (t) => { let m; try { m = JSON.parse(t); } catch (e) { return; } hostMsg(conn.p, m); });
+        conn.on('close', () => dropGuest(conn));
+        conn.on('error', () => dropGuest(conn));
+      });
+      peer.on('disconnected', () => { if (net.peer === peer && net.role === 'host') { try { peer.reconnect(); } catch (e) { /* try later */ } } });
+      peer.on('error', (e) => {
+        if (net.peer !== peer) return;
+        if (e.type === 'unavailable-id' && left > 0) { peer.destroy(); tryCode(left - 1); return; }
+        if (net.code && e.type !== 'network' && e.type !== 'server-error' && e.type !== 'socket-error') return;   // a friend's connection hiccup
+        leaveNet(); refreshNet();
+        $('net-info').textContent = `Couldn't open your world to friends (${e.type}). Try again in a moment.`;
+      });
+    };
+    tryCode(3);
+  }
+  function dropGuest(conn) {
+    const i = net.conns.indexOf(conn); if (i >= 0) net.conns.splice(i, 1);
+    const p = conn.p; conn.p = null;
+    if (!p || !S) return;
+    const j = S.players.indexOf(p); if (j < 0) return;
+    S.players.splice(j, 1);
+    for (const e of S.dogs.concat(S.owls)) if (e.owner === p.id) e.owner = me.id;   // their pets stay and follow you
+    toast(`👋 Player ${p.id} left.`);
+    refreshNet();
+  }
+  function hostMsg(p, m) {
+    if (!p || !S || !S.players.includes(p) || !m) return;
+    const num = (v) => (typeof v === 'number' && isFinite(v) ? v : 0);
+    asPlayer(p, () => {
+      if (m.k === 'pos') { if (p.dead <= 0) { p.x = num(m.x); p.y = num(m.y); p.face = m.face > 0 ? 1 : -1; } }
+      else if (m.k === 'down') { if (TOOLS.includes(m.tool)) actDown(p, { tool: m.tool, dir: num(m.dir) & 3, wx: num(m.wx), wy: num(m.wy), btn: num(m.btn) }); }
+      else if (m.k === 'move') actMove(p, num(m.wx), num(m.wy));
+      else if (m.k === 'up') actUp(p);
+    });
+  }
+  function snapshot(full) {
+    const o = {
+      k: full ? 'init' : 'snap', T: S.T, clock: S.clock, night: S.night, phase: S.phase, stock: S.stock, kills: S.kills, over: S.over,
+      q: S.queue.length, th: S.tower.hp, thit: S.tower.hit > 0 ? 1 : 0,
+      b: S.list.map((b) => [BK.indexOf(b.type), b.x, b.y, b.dir, Math.ceil(b.hp), b.item ? IK.indexOf(b.item) : -1, r2(b.prog), b.buf, r2(b.ang), b.firing > 0 ? 1 : 0, b.hit > 0 ? 1 : 0]),
+      m: S.monsters.map((m) => [m.id, MK.indexOf(m.kind), r2(m.x), r2(m.y), Math.ceil(m.hp), Math.ceil(m.max), m.face, m.burn > 0 ? 1 : 0]),
+      a: S.animals.map((a) => [a.id, WK.indexOf(a.kind), r2(a.x), r2(a.y), a.vx > 0 ? 1 : -1]),
+      d: S.dogs.map((g) => [g.id, r2(g.x), r2(g.y), Math.ceil(g.hp), Math.ceil(g.max), g.rest > 0 ? 1 : 0, g.face]),
+      r: S.rats.map((e) => [e.id, r2(e.x), r2(e.y), e.face]),
+      c: S.chickens.map((e) => [e.id, r2(e.x), r2(e.y), e.face]),
+      o: S.owls.map((e) => [e.id, r2(e.x), r2(e.y), e.face]),
+      p: S.players.map((q) => [q.id, r2(q.x), r2(q.y), q.face, Math.ceil(q.hp), q.dead > 0 ? r2(q.dead) : 0, q.pack]),
+      s: S.shots.map((h) => [h.k, r2(h.x), r2(h.y), h.bolt ? 1 : 0, r2(h.sx || 0), r2(h.sy || 0), r2(h.tx || 0), r2(h.ty || 0)]),
+      f: full ? [] : S.fxOut || [],
+    };
+    if (full) { o.seed = S.seed; o.changed = [...S.changed]; }
+    else o.ch = S.changed.dirty ? [...S.changed.dirty].map((k) => [k, S.changed.get(k)]) : [];
+    return o;
+  }
+  function sendSnaps() {
+    if (!net.conns.length) { if (S.changed.dirty) S.changed.dirty.clear(); S.fxOut = []; return; }
+    net.broadcast(snapshot(false));
+    if (S.changed.dirty) S.changed.dirty.clear();
+    S.fxOut = [];
+  }
+
+  // ── Joining
+  async function joinWorld(code) {
+    code = String(code || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const st = $('join-status');
+    if (code.length !== 5) { st.textContent = 'Type the 5-letter code your friend sees in their ☰ menu.'; return; }
+    if (net.role) return;
+    net.role = 'guest'; net.joined = false;
+    st.textContent = 'Connecting…';
+    try { await loadPeer(); } catch (e) { leaveNet(); st.textContent = "Couldn't load the online part. Are you connected to the internet?"; return; }
+    const peer = new Peer();
+    net.peer = peer;
+    const fail = (msg) => { if (net.peer !== peer) return; leaveNet(); st.textContent = msg; };
+    const timer = setTimeout(() => { if (!net.joined) fail("Couldn't reach that world. Check the code, and that your friend's world is still open."); }, 15000);
+    peer.on('open', () => {
+      const conn = peer.connect(PEER_PREFIX + code, { reliable: true });
+      net.conn = conn;
+      conn.on('data', (t) => { let m; try { m = JSON.parse(t); } catch (e) { return; } guestMsg(m); });
+      conn.on('close', () => {
+        if (net.conn !== conn) return;
+        const was = net.joined;
+        leaveNet();
+        if (was) { startScreen(); $('join-status').textContent = 'The host closed their world, so the game ended.'; }
+        else st.textContent = "Couldn't join that world.";
+      });
+    });
+    peer.on('error', (e) => {
+      clearTimeout(timer);
+      if (e.type === 'peer-unavailable') fail('No world with that code is open. Check the code and try again.');
+      else if (!net.joined) fail(`Couldn't connect (${e.type}). Try again in a moment.`);
+    });
+  }
+  function guestMsg(m) {
+    if (net.role !== 'guest' || !m) return;
+    if (m.k === 'init') guestInit(m);
+    else if (m.k === 'snap' && net.joined) applySnap(m);
+    else if (m.k === 'say') say(m.msg, m.bad);
+    else if (m.k === 'toast') toast(m.msg);
+    else if (m.k === 'full') $('join-status').textContent = 'That world is full (8 players).';
+  }
+  function guestInit(o) {
+    S = {
+      seed: o.seed, T: 0, phase: 'day', clock: 0, night: 0, warned: true, stock: { ...START }, nid: 0,
+      changed: new TrackMap(o.changed), builds: new Map(), raised: new Map(), list: [], tower: null, players: [],
+      monsters: [], animals: [], dogs: [], rats: [], chickens: [], owls: [], shots: [], fx: [], queue: [], animalT: 0, kills: 0, over: false,
+    };
+    makeTower(TOWER_HP);
+    me = makePlayer(o.you); me.fresh = true; S.players = [me];
+    applySnap(o);
+    net.joined = true;
+    keys.clear(); ptr = null; joy = null; paused = false;
+    camX = me.x; camY = me.y;
+    show('game'); $('menu-btn').style.borderColor = PCOL[(me.id - 1) % PCOL.length];
+    resize(); setTool('hand');
+    toast(`🌐 You joined as Player ${me.id}! Build the factory together.`);
+  }
+  // Keep things where they are on screen and glide them to where the host says they are.
+  function syncList(old, rows, make) {
+    const byId = new Map(old.map((e) => [e.id, e]));
+    return rows.map((row) => {
+      const n = make(row), o = byId.get(n.id);
+      n.tx = n.x; n.ty = n.y;
+      if (o && Math.hypot(o.x - n.x, o.y - n.y) < 5) { n.x = o.x; n.y = o.y; }
+      return n;
+    });
+  }
+  function applySnap(o) {
+    Object.assign(S, { T: o.T, clock: o.clock, night: o.night, phase: o.phase, stock: o.stock, kills: o.kills });
+    S.queue = new Array(o.q);
+    S.tower.hp = o.th; S.tower.hit = o.thit ? 0.1 : 0;
+    S.builds = new Map(); S.raised = new Map(); S.list = [];
+    for (const [x, y] of [[-1, -1], [0, -1], [-1, 0], [0, 0]]) S.builds.set(key(x, y), S.tower);
+    for (const [ti, x, y, dir, hp, it, prog, buf, ang, firing, hit] of o.b) {
+      const t = BK[ti]; if (!t) continue;
+      const b = makeBuilding(t, x, y, dir);
+      Object.assign(b, { hp, item: it >= 0 ? IK[it] : null, prog, buf, ang, firing: firing ? 0.1 : 0, hit: hit ? 0.1 : 0 });
+      layer(t).set(key(x, y), b); S.list.push(b);
+    }
+    S.monsters = syncList(S.monsters, o.m, ([id, k, x, y, hp, max, face, burn]) => ({ id, kind: MK[k], x, y, hp, max, face, burn }));
+    S.animals = syncList(S.animals, o.a, ([id, k, x, y, f]) => ({ id, kind: WK[k], x, y, vx: f }));
+    S.dogs = syncList(S.dogs, o.d, ([id, x, y, hp, max, rest, face]) => ({ id, x, y, hp, max, rest, face }));
+    S.rats = syncList(S.rats, o.r, ([id, x, y, face]) => ({ id, x, y, face }));
+    S.chickens = syncList(S.chickens, o.c, ([id, x, y, face]) => ({ id, x, y, face }));
+    S.owls = syncList(S.owls, o.o, ([id, x, y, face]) => ({ id, x, y, face }));
+    const others = S.players.filter((q) => q !== me);
+    const rows = o.p.filter((row) => row[0] !== me.id);
+    const mine = o.p.find((row) => row[0] === me.id);
+    if (mine) {
+      const [, x, y, , hp, dead, pack] = mine;
+      if (me.fresh || dead > 0 || me.dead > 0) { me.x = x; me.y = y; me.fresh = false; }   // after you get knocked out, the host puts you back at the tower
+      me.hp = hp; me.dead = dead; me.pack = pack;
+    }
+    S.players = [me].concat(syncList(others, rows, ([id, x, y, face, hp, dead, pack]) => ({ id, x, y, face, hp, dead, pack })));
+    S.shots = o.s.map(([k, x, y, bolt, sx, sy, tx, ty]) => ({ k, x, y, bolt: !!bolt, sx, sy, tx, ty }));
+    for (const f of o.f || []) fx(f);
+    for (const [k, v] of o.ch || []) S.changed.set(k, v);
+    if (o.over && !S.over) {
+      S.over = true;
+      $('over-text').textContent = `The monsters knocked down the tower on night ${S.night}. Together you beat ${S.kills} monster${S.kills === 1 ? '' : 's'}.`;
+      setTimeout(() => show('over'), 900);
+    }
+  }
+  let posT = 0;
+  function guestUpdate(dt) {
+    S.T += dt; S.clock += dt;
+    movePlayer(me, dt);
+    const k = Math.min(1, dt * 12);
+    for (const list of [S.monsters, S.animals, S.dogs, S.rats, S.chickens, S.owls, S.players])
+      for (const e of list) if (e !== me && e.tx !== undefined) { e.x += (e.tx - e.x) * k; e.y += (e.ty - e.y) * k; }
+    for (const b of S.list) if (b.item && b.type !== 'splitter') b.prog = Math.min(1, b.prog + dt * BELT_SPEED);
+    for (const f of S.fx) { f.t = (f.t || 0) + dt; if (f.vx) { f.x += f.vx * dt; f.y += f.vy * dt; } }
+    S.fx = S.fx.filter((f) => f.t < f.life);
+    if ((posT += dt) > 0.066 && me.dead <= 0) { posT = 0; net.send({ k: 'pos', x: r2(me.x), y: r2(me.y), face: me.face }); }
+  }
+
   // ── The loop ─────────────────────────────────────────────────────────────
-  let last = performance.now(), hudT = 0, saveT = 0;
+  let last = performance.now(), hudT = 0, saveT = 0, netT = 0;
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     if (S && !$('game').hidden) {
-      if (!paused && !S.over) {
+      if (net.role === 'guest') guestUpdate(dt);
+      else if ((!paused || net.role === 'host') && !S.over) {   // with friends here the world keeps going while the menu is open
         update(dt);
         if ((saveT += dt) > 15) { saveT = 0; save(); }
       }
+      if (net.role === 'host' && (netT += dt) > 0.066) { netT = 0; sendSnaps(); }
       render();
       if ((hudT += dt) > 0.15) { hudT = 0; refreshHud(); }
     }
     requestAnimationFrame(frame);
   }
 
-  if (location.hash === '#debug') window.BW = { get S() { return S; }, place };   // for testing
+  if (location.hash === '#debug') window.BW = { get S() { return S; }, get me() { return me; }, net, place, hostWorld, joinWorld };   // for testing
   buildToolbar();
   resize();
   startScreen();

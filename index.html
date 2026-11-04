@@ -47,6 +47,11 @@
   .slot-info { font-size: 14px; color: var(--muted); }
   .slot-btns { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
   .slot-btns .btn { padding: 8px 14px; font-size: 16px; }
+  .join { display: flex; gap: 8px; justify-content: center; }
+  .join input { width: 9.5ch; font: inherit; font-size: 22px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; text-align: center;
+    color: var(--ink); background: rgba(0,0,0,.25); border: 2px solid var(--line); border-radius: 14px; padding: 8px; }
+  .join input:focus { outline: none; border-color: var(--accent); }
+  .code { font-size: 34px; letter-spacing: 5px; color: var(--accent); user-select: all; }
   @media (max-width: 360px) { .slots { grid-template-columns: 1fr; } }
 
   /* The game */
@@ -109,6 +114,15 @@
       <h2>Monsters</h2>
       <div class="chart" id="chart-mon"></div>
     </div>
+    <div class="card">
+      <h2>🌐 Play with friends</h2>
+      <p class="muted">To host: start or continue a world, open the ☰ menu and press <b>Invite friends</b>. Tell your friends the code you get.</p>
+      <div class="join">
+        <input id="join-code" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Join code">
+        <button class="btn primary" id="join" type="button">Join</button>
+      </div>
+      <p class="muted" id="join-status" style="text-align:center"></p>
+    </div>
     <div class="row">
       <a class="btn" href="/">All games</a>
     </div>
@@ -124,6 +138,7 @@
     <span class="pill" id="h-time"></span>
     <span class="pill" id="h-life"></span>
     <span class="pill" id="h-pets"></span>
+    <span class="pill" id="h-net" hidden></span>
     <span class="spacer"></span>
     <button class="pill" id="menu-btn" type="button" aria-label="Menu">☰</button>
   </div>
@@ -138,6 +153,8 @@
   <div class="col" style="max-width:360px">
     <h2 style="text-align:center">Paused</h2>
     <button class="btn primary" id="resume" type="button">Keep playing</button>
+    <button class="btn" id="invite" type="button">🌐 Invite friends</button>
+    <p id="net-info" style="text-align:center"></p>
     <button class="btn" id="to-menu" type="button">Menu (your world is saved)</button>
   </div>
 </section>
@@ -151,12 +168,12 @@
   </div>
 </section>
 
-<script src="builder.js?v=7"></script>
+<script src="builder.js?v=8"></script>
 <script>
   // Browsers keep an old copy of this page for a while. Ask the site which version is newest,
   // and if this page is older, load the new one straight away.
   (function () {
-    var V = '7';
+    var V = '8';
     fetch('version.txt?t=' + Date.now(), { cache: 'no-store' })
       .then(function (r) { return r.ok ? r.text() : ''; })
       .then(function (t) {

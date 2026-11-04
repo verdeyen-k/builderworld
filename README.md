@@ -29,6 +29,14 @@ You start next to your 🏰 **centre tower**. Walk with **WASD / arrow keys**, o
 
 The turret costs weren't in the original idea, so these are a first guess. Change them in `BUILD` at the top of `builder.js`.
 
+## Playing with friends
+
+- **Host:** start or continue a world, open the ☰ menu and press **🌐 Invite friends**. You get a 5-letter code.
+- **Join:** on the start screen, type the code under **Play with friends** and press **Join**.
+- Up to 8 players can build in one world. Everyone shares the tower's stuff, but each player has their own backpack, and dogs and owls follow whoever tamed them.
+- The host's browser runs the world and saves it in the host's save file. While friends are there the world keeps going even with the menu open. If the host leaves, the game ends for everyone.
+- Browsers connect straight to each other. [PeerJS](https://peerjs.com/) (its free public server) only helps them find each other using the code. Some school or work networks block this kind of connection.
+
 ## Monsters
 
 - 👹 **Rallet:** the basic monster.
