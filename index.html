@@ -151,6 +151,20 @@
   </div>
 </section>
 
-<script src="builder.js?v=6"></script>
+<script src="builder.js?v=7"></script>
+<script>
+  // Browsers keep an old copy of this page for a while. Ask the site which version is newest,
+  // and if this page is older, load the new one straight away.
+  (function () {
+    var V = '7';
+    fetch('version.txt?t=' + Date.now(), { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.text() : ''; })
+      .then(function (t) {
+        t = t.trim();
+        if (t && t !== V && location.search !== '?v=' + t) location.replace(location.pathname + '?v=' + t + location.hash);
+      })
+      .catch(function () { /* offline: keep playing this copy */ });
+  })();
+</script>
 </body>
 </html>

@@ -53,3 +53,4 @@ The turret costs weren't in the original idea, so these are a first guess. Chang
 
 - `index.html`: the page and styles.
 - `builder.js`: everything else. All the numbers (costs, turret damage, monster strength, day length) are in the tables at the top.
+- `version.txt`: the newest version number. When you change the game, bump it here and in the two `7`s in `index.html` (`builder.js?v=` and `var V =`), so old copies in browsers reload themselves.
