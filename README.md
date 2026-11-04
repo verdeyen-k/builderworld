@@ -1,6 +1,6 @@
 # 🏗️ Builder World
 
-A one-player factory and survival game in a world that goes on forever. Your world saves itself, so you can come back to it.
+A one-player factory and survival game in a world that goes on forever. There are 4 save files (🔴 red, 🔵 blue, 🟢 green and 🟡 yellow), and each world saves itself so you can come back to it.
 
 ## How to play
 

@@ -70,7 +70,13 @@
   const TOOLS = ['hand', 'belt', 'over', 'splitter', 'wall', 'hwood', 'hrock', 'hmetal', 'tbasic', 'tsniper', 'tfire', 'tmega', 'remove'];
   const TOOL_KEYS = { '1': 'belt', '2': 'splitter', '3': 'wall', '4': 'hwood', '5': 'hrock', '6': 'hmetal',
                       '7': 'tbasic', '8': 'tsniper', '9': 'tfire', '0': 'tmega', 'o': 'over', 'x': 'remove', 'q': 'hand', 'escape': 'hand' };
-  const SAVE_KEY = 'builderworld-save-v1', BEST_KEY = 'builderworld-best';
+  const BEST_KEY = 'builderworld-best';
+  // Four save files, one per colour.
+  const SLOTS = [{ id: 'r', name: 'Red', dot: '🔴', c: '#ff6b6b' }, { id: 'b', name: 'Blue', dot: '🔵', c: '#4dabf7' },
+                 { id: 'g', name: 'Green', dot: '🟢', c: '#69db7c' }, { id: 'y', name: 'Yellow', dot: '🟡', c: '#ffd43b' }];
+  let slot = 'r';
+  const slotKey = (id) => 'builderworld-save-' + id;
+  const saveKey = () => slotKey(slot);
 
   // ── Little helpers ───────────────────────────────────────────────────────
   const key = (x, y) => x + ',' + y;
@@ -150,11 +156,11 @@
       chickens: S.chickens.length, owls: S.owls.length,
       changed: [...S.changed], builds: S.list.map((b) => [b.type, b.x, b.y, b.dir, Math.ceil(b.hp)]),
     };
-    store.set(SAVE_KEY, JSON.stringify(data));
+    store.set(saveKey(), JSON.stringify(data));
   }
   function load() {
     let d;
-    try { d = JSON.parse(store.get(SAVE_KEY)); } catch (e) { return false; }
+    try { d = JSON.parse(store.get(saveKey())); } catch (e) { return false; }
     if (!d || d.v !== 1) return false;
     newWorld();
     S.changed = new Map(d.changed); S.seed = d.seed; S.T = d.T; S.clock = d.clock; S.night = d.night;
@@ -1141,7 +1147,7 @@
   function startScreen() {
     paused = false;
     show('start');
-    $('continue').hidden = !store.get(SAVE_KEY);
+    renderSlots();
     const best = +(store.get(BEST_KEY) || 0);
     $('best').textContent = best ? `Your best: survived ${best} night${best === 1 ? '' : 's'}` : '';
   }
@@ -1150,6 +1156,7 @@
     keys.clear(); press = null; joy = null; paused = false;
     camX = S.player.x; camY = S.player.y;
     show('game');
+    $('menu-btn').style.borderColor = SLOTS.find((x) => x.id === slot).c;
     resize(); setTool('hand');
     toast(S.night === 0 && S.T < 1 ? '☀️ Gather stuff and bring it to the 🏰 tower. Night comes in a few minutes!' : `☀️ Welcome back! Day ${S.night + 1}.`);
   }
@@ -1158,18 +1165,43 @@
   function gameOver() {
     if (S.over) return;
     S.over = true;
-    store.del(SAVE_KEY);
+    store.del(saveKey());
     const best = Math.max(+(store.get(BEST_KEY) || 0), S.night - 1);
     store.set(BEST_KEY, best);
     $('over-text').textContent = `The monsters knocked down your tower on night ${S.night}. You beat ${S.kills} monster${S.kills === 1 ? '' : 's'}. Best: ${best} night${best === 1 ? '' : 's'} survived.`;
     setTimeout(() => show('over'), 900);
   }
 
-  $('new').addEventListener('click', () => {
-    if (store.get(SAVE_KEY) && !confirm('Start a new world? Your saved world will be lost.')) return;
-    store.del(SAVE_KEY); begin(true);
-  });
-  $('continue').addEventListener('click', () => begin(false));
+  // The four save files on the start screen.
+  (() => {   // an older single save becomes the red one
+    const old = store.get('builderworld-save-v1');
+    if (old && !store.get(slotKey('r'))) store.set(slotKey('r'), old);
+    if (old) store.del('builderworld-save-v1');
+  })();
+  function slotInfo(id) {
+    try { const d = JSON.parse(store.get(slotKey(id))); if (d && d.v === 1) return d; } catch (e) { /* empty */ }
+    return null;
+  }
+  function renderSlots() {
+    const box = $('slots'); box.innerHTML = '';
+    for (const sl of SLOTS) {
+      const d = slotInfo(sl.id), el = document.createElement('div');
+      el.className = 'slot'; el.style.setProperty('--c', sl.c);
+      el.innerHTML = `<div class="slot-name">${sl.dot} ${sl.name}</div>` +
+        `<div class="slot-info">${d ? `Day ${d.night + 1} · ${d.night} night${d.night === 1 ? '' : 's'} survived` : 'Empty'}</div>` +
+        `<div class="slot-btns">${d ? '<button class="btn primary" data-a="play" type="button">Play</button><button class="btn" data-a="new" type="button">New</button>'
+                                    : '<button class="btn primary" data-a="new" type="button">Start</button>'}</div>`;
+      el.addEventListener('click', (e) => {
+        const a = e.target.closest('button') && e.target.closest('button').dataset.a;
+        if (!a) return;
+        slot = sl.id;
+        if (a === 'play') { begin(false); return; }
+        if (d && !confirm(`Start a new world in the ${sl.name} save? The ${sl.name} world will be lost.`)) return;
+        store.del(slotKey(sl.id)); begin(true);
+      });
+      box.appendChild(el);
+    }
+  }
   $('menu-btn').addEventListener('click', pause);
   $('resume').addEventListener('click', resume);
   $('to-menu').addEventListener('click', () => { save(); startScreen(); });

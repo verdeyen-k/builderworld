@@ -41,6 +41,13 @@
   ul.rules { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 5px; line-height: 1.35; }
   .chart { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 15px; }
   .chart b { font-weight: 600; }
+  .slots { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .slot { background: var(--card); border: 3px solid var(--c); border-radius: 18px; padding: 12px; display: flex; flex-direction: column; gap: 6px; align-items: center; text-align: center; }
+  .slot-name { font-size: 20px; font-weight: 700; color: var(--c); }
+  .slot-info { font-size: 14px; color: var(--muted); }
+  .slot-btns { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+  .slot-btns .btn { padding: 8px 14px; font-size: 16px; }
+  @media (max-width: 360px) { .slots { grid-template-columns: 1fr; } }
 
   /* The game */
   #game { position: fixed; inset: 0; overscroll-behavior: none; -webkit-user-select: none; user-select: none; }
@@ -82,6 +89,8 @@
 <section class="screen" id="start">
   <div class="col">
     <h1>Builder World<small>GATHER · TAME · BUILD · SURVIVE THE NIGHT</small></h1>
+    <h2 style="text-align:center">Pick a save file</h2>
+    <div class="slots" id="slots"></div>
     <div class="card">
       <h2>How to play</h2>
       <ul class="rules">
@@ -101,8 +110,6 @@
       <div class="chart" id="chart-mon"></div>
     </div>
     <div class="row">
-      <button class="btn primary" id="continue" type="button" hidden>Continue</button>
-      <button class="btn primary" id="new" type="button">New world</button>
       <a class="btn" href="/">All games</a>
     </div>
     <p class="muted" id="best" style="text-align:center"></p>
@@ -144,6 +151,6 @@
   </div>
 </section>
 
-<script src="builder.js?v=5"></script>
+<script src="builder.js?v=6"></script>
 </body>
 </html>
